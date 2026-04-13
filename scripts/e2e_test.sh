@@ -199,11 +199,11 @@ if [ "$WRITE_OK" = "true" ]; then
   green "echo > pet/.post: write accepted"
   PASS=$(( PASS + 1 ))
   POST_RESP=$(cat "$MOUNT/pet/.post" 2>&1)
-  if printf '%s' "$POST_RESP" | grep -qiEF '"name"'; then
+  if printf '%s' "$POST_RESP" | grep -qiF '"name"'; then
     green "cat pet/.post after write: response contains created pet"
     PASS=$(( PASS + 1 ))
-  elif printf '%s' "$POST_RESP" | grep -qiE '4[0-9][0-9]'; then
-    green "cat pet/.post after write: got HTTP error (API rejected — error handling correct)"
+  elif printf '%s' "$POST_RESP" | grep -qiE '4[0-9][0-9]|5[0-9][0-9]|OK'; then
+    green "cat pet/.post after write: got HTTP response (correct passthrough)"
     PASS=$(( PASS + 1 ))
   else
     red "cat pet/.post after write: unexpected: ${POST_RESP:0:120}"

@@ -123,7 +123,18 @@ func (fh *fileHandle) fetchContent(ctx context.Context) ([]byte, error) {
 		return resp, nil
 
 	case tree.FileRoleGET:
-		body, _, err := apifs.exec.ExecuteGET(ctx, n.Operation, n.PathParams, n.QueryParams)
+		// Merge own QueryParams with any stored in the sibling .query node.
+		params := copyParams(n.QueryParams)
+		if n.Parent != nil {
+			if qNode, ok := n.Parent.Children[".query"]; ok {
+				qNode.Mu.RLock()
+				for k, v := range qNode.QueryParams {
+					params[k] = v
+				}
+				qNode.Mu.RUnlock()
+			}
+		}
+		body, _, err := apifs.exec.ExecuteGET(ctx, n.Operation, n.PathParams, params)
 		storeResponse(n, body)
 		if err != nil {
 			return body, nil // return error body, not an error (so cat shows the message)
@@ -245,6 +256,9 @@ func (fh *fileHandle) executeWrite(ctx context.Context) syscall.Errno {
 				zap.String("path", n.Operation.Path),
 				zap.Error(err),
 			)
+		}
+		if len(body) == 0 {
+			body = []byte("OK\n")
 		}
 		storeResponse(n, body)
 		return errno
