@@ -24,6 +24,7 @@ type FileNode struct {
 
 var _ fs.NodeGetattrer = (*FileNode)(nil)
 var _ fs.NodeOpener = (*FileNode)(nil)
+var _ fs.NodeSetattrer = (*FileNode)(nil)
 
 // Getattr returns file attributes.
 func (f *FileNode) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
@@ -39,6 +40,13 @@ func (f *FileNode) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.Attr
 		}
 		out.Size = sz
 	}
+	return fs.OK
+}
+
+// Setattr accepts size/mode changes (needed for O_TRUNC on Linux write redirection).
+func (f *FileNode) Setattr(ctx context.Context, fh fs.FileHandle, in *fuse.SetAttrIn, out *fuse.AttrOut) syscall.Errno {
+	out.Mode = fileMode(f.treeNode)
+	out.Size = in.Size
 	return fs.OK
 }
 
