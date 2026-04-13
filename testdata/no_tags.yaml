@@ -1,0 +1,83 @@
+openapi: "3.0.3"
+info:
+  title: No Tags API
+  version: "1.0.0"
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /items:
+    get:
+      operationId: listItems
+      summary: List items
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: success
+    post:
+      operationId: createItem
+      summary: Create item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+      responses:
+        "201":
+          description: created
+  /items/{id}:
+    get:
+      operationId: getItem
+      summary: Get item by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: success
+    put:
+      operationId: updateItem
+      summary: Update item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        "200":
+          description: success
+    delete:
+      operationId: deleteItem
+      summary: Delete item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: deleted

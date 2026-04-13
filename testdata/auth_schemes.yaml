@@ -1,0 +1,52 @@
+openapi: "3.0.3"
+info:
+  title: Auth Test API
+  version: "1.0.0"
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /protected:
+    get:
+      operationId: getProtected
+      summary: Get protected resource
+      tags:
+        - resources
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: success
+  /api-key:
+    get:
+      operationId: getApiKey
+      summary: Get API key resource
+      tags:
+        - resources
+      security:
+        - apiKeyAuth: []
+      responses:
+        "200":
+          description: success
+  /basic:
+    get:
+      operationId: getBasic
+      summary: Get basic auth resource
+      tags:
+        - resources
+      security:
+        - basicAuth: []
+      responses:
+        "200":
+          description: success
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    basicAuth:
+      type: http
+      scheme: basic

@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install libfuse3
+        run: sudo apt-get install -y fuse3 libfuse3-dev
+
+      - name: Build
+        run: make build
+
+      - name: Test
+        run: make test
+
+  build-linux:
+    name: Static Linux build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build static binary
+        run: make build-linux
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: apimount-linux
+          path: bin/apimount-linux

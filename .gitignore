@@ -1,0 +1,12 @@
+bin/
+mnt/
+apimount_spec.md
+.claude/
+
+# Go
+*.test
+*.out
+vendor/
+
+# macOS
+.DS_Store
