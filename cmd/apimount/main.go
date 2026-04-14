@@ -49,7 +49,7 @@ func init() {
 	pf.String("group-by", "tags", "tree grouping: tags|path|flat")
 	pf.Bool("verbose", false, "debug logging")
 	pf.String("profile", "", "use a named profile from config file")
-	v.BindPFlags(pf)
+	_ = v.BindPFlags(pf)
 
 	f := rootCmd.Flags()
 	f.String("mount", "", "mount point directory (required unless --dry-run)")
@@ -65,7 +65,7 @@ func init() {
 	f.Bool("read-only", false, "disallow all write operations")
 	f.Bool("allow-other", false, "FUSE allow_other option")
 	f.Bool("dry-run", false, "print filesystem tree without mounting")
-	v.BindPFlags(f)
+	_ = v.BindPFlags(f)
 
 	rootCmd.AddCommand(treeCmd, validateCmd, versionCmd, completionCmd)
 }
@@ -81,7 +81,7 @@ func initConfig() {
 	}
 	v.SetEnvPrefix("APIMOUNT")
 	v.AutomaticEnv()
-	v.ReadInConfig()
+	_ = v.ReadInConfig()
 
 	profile := v.GetString("profile")
 	if profile != "" {

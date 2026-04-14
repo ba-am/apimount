@@ -8,49 +8,60 @@ linters:
     - unused
     - errcheck
 
-linters-settings:
-  depguard:
+  settings:
+    depguard:
+      rules:
+        # Rule 1: core packages must not import frontend packages or cmd.
+        core-no-frontend:
+          list-mode: lax
+          files:
+            - "**/internal/core/**/*.go"
+          deny:
+            - pkg: "github.com/apimount/apimount/internal/frontend"
+              desc: "core must not import frontend packages"
+            - pkg: "github.com/apimount/apimount/cmd"
+              desc: "core must not import cmd"
+
+        # Rule 2: no cross-frontend imports.
+        no-cross-frontend:
+          list-mode: lax
+          files:
+            - "**/internal/frontend/fuse/**/*.go"
+          deny:
+            - pkg: "github.com/apimount/apimount/internal/frontend/nfs"
+              desc: "frontends must not import other frontends"
+            - pkg: "github.com/apimount/apimount/internal/frontend/webdav"
+              desc: "frontends must not import other frontends"
+            - pkg: "github.com/apimount/apimount/internal/frontend/mcp"
+              desc: "frontends must not import other frontends"
+
+        # Rule 3: no old v1 package paths allowed anywhere.
+        no-v1-packages:
+          list-mode: lax
+          files:
+            - "$all"
+          deny:
+            - pkg: "github.com/apimount/apimount/internal/spec"
+              desc: "use internal/core/spec instead (v1 package removed)"
+            - pkg: "github.com/apimount/apimount/internal/tree"
+              desc: "use internal/core/plan instead (v1 package removed)"
+            - pkg: "github.com/apimount/apimount/internal/http"
+              desc: "use internal/core/exec instead (v1 package removed)"
+            - pkg: "github.com/apimount/apimount/internal/fs"
+              desc: "use internal/frontend/fuse instead (v1 package removed)"
+
+        # Rule 4: no zap allowed (use log/slog).
+        no-zap:
+          list-mode: lax
+          files:
+            - "$all"
+          deny:
+            - pkg: "go.uber.org/zap"
+              desc: "use log/slog (stdlib) instead of zap"
+
+  exclusions:
     rules:
-      # Rule 1: core packages must not import frontend packages or cmd.
-      core-no-frontend:
-        files:
-          - "**/internal/core/**/*.go"
-        deny:
-          - pkg: "github.com/apimount/apimount/internal/frontend"
-            desc: "core must not import frontend packages"
-          - pkg: "github.com/apimount/apimount/cmd"
-            desc: "core must not import cmd"
-
-      # Rule 2: no cross-frontend imports.
-      no-cross-frontend:
-        files:
-          - "**/internal/frontend/fuse/**/*.go"
-        deny:
-          - pkg: "github.com/apimount/apimount/internal/frontend/nfs"
-            desc: "frontends must not import other frontends"
-          - pkg: "github.com/apimount/apimount/internal/frontend/webdav"
-            desc: "frontends must not import other frontends"
-          - pkg: "github.com/apimount/apimount/internal/frontend/mcp"
-            desc: "frontends must not import other frontends"
-
-      # Rule 3: no old v1 package paths allowed anywhere.
-      no-v1-packages:
-        files:
-          - "**/*.go"
-        deny:
-          - pkg: "github.com/apimount/apimount/internal/spec"
-            desc: "use internal/core/spec instead (v1 package removed)"
-          - pkg: "github.com/apimount/apimount/internal/tree"
-            desc: "use internal/core/plan instead (v1 package removed)"
-          - pkg: "github.com/apimount/apimount/internal/http"
-            desc: "use internal/core/exec instead (v1 package removed)"
-          - pkg: "github.com/apimount/apimount/internal/fs"
-            desc: "use internal/frontend/fuse instead (v1 package removed)"
-
-      # Rule 4: no zap allowed (use log/slog).
-      no-zap:
-        files:
-          - "**/*.go"
-        deny:
-          - pkg: "go.uber.org/zap"
-            desc: "use log/slog (stdlib) instead of zap"
+      # Test files: don't nag on unchecked errors in test helpers/mocks.
+      - path: _test\.go
+        linters:
+          - errcheck

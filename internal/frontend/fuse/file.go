@@ -225,7 +225,7 @@ func (fh *fileHandle) Release(_ context.Context) syscall.Errno {
 	fh.mu.Lock()
 	defer fh.mu.Unlock()
 	if !fh.flushed && fh.buf.Len() > 0 {
-		fh.executeWrite(context.Background())
+		_ = fh.executeWrite(context.Background())
 		fh.flushed = true
 	}
 	return gofs.OK

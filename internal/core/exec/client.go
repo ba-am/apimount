@@ -108,7 +108,7 @@ func (c *APIClient) Execute(ctx context.Context, req *HTTPRequest) (*HTTPRespons
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	elapsed := time.Since(start)
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 32*1024*1024)) // 32 MB

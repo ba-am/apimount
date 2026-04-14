@@ -113,15 +113,4 @@ func (a *APIFS) Serve(ctx context.Context, p any, e any) error {
 // Name implements frontend.Frontend.
 func (a *APIFS) Name() string { return "fuse" }
 
-type baseNode struct {
-	gofs.Inode
-	apifs *APIFS
-}
-
-func (n *baseNode) Getattr(_ context.Context, _ gofs.FileHandle, out *fuse.AttrOut) syscall.Errno {
-	out.Mode = 0444
-	out.Size = 0
-	return gofs.OK
-}
-
 func durationPtr(d time.Duration) *time.Duration { return &d }

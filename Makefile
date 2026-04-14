@@ -1,4 +1,4 @@
-.PHONY: build build-linux test test-verbose lint clean install demo unmount
+.PHONY: build build-linux test test-verbose vet lint vulncheck clean install demo unmount
 
 build:
 	go build -o bin/apimount ./cmd/apimount
@@ -13,8 +13,14 @@ test:
 test-verbose:
 	go test ./... -v -race
 
+vet:
+	go vet ./...
+
 lint:
 	golangci-lint run ./...
+
+vulncheck:
+	govulncheck ./...
 
 clean:
 	rm -rf bin/

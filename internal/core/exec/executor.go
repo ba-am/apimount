@@ -234,9 +234,9 @@ func parentPath(urlStr string) string {
 // FormatFullResponse returns the full response in HTTP/1.1-style format.
 func (e *Executor) FormatFullResponse(resp *HTTPResponse) []byte {
 	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("HTTP/1.1 %d\n", resp.StatusCode))
+	fmt.Fprintf(&buf, "HTTP/1.1 %d\n", resp.StatusCode)
 	for k, v := range resp.Headers {
-		buf.WriteString(fmt.Sprintf("%s: %s\n", k, v))
+		fmt.Fprintf(&buf, "%s: %s\n", k, v)
 	}
 	buf.WriteString("\n")
 	buf.Write(resp.Body)
