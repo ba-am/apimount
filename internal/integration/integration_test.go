@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -401,21 +400,4 @@ func TestQueryStringBuilding(t *testing.T) {
 			assert.Equal(t, v, received[k], "query param %q", k)
 		}
 	}
-}
-
-// parseQueryString mirrors the internal fuse package logic for test use.
-func parseQueryString(s string) map[string]string {
-	result := make(map[string]string)
-	for _, part := range strings.Split(strings.TrimSpace(s), "&") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		if idx := strings.IndexByte(part, '='); idx < 0 {
-			result[part] = ""
-		} else {
-			result[strings.TrimSpace(part[:idx])] = strings.TrimSpace(part[idx+1:])
-		}
-	}
-	return result
 }

@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/apimount/apimount/internal/core/auth"
 	"github.com/apimount/apimount/internal/core/cache"
 	"github.com/apimount/apimount/internal/core/spec"
 )
@@ -244,6 +243,3 @@ func (e *Executor) FormatFullResponse(resp *HTTPResponse) []byte {
 	buf.WriteString("\n")
 	return buf.Bytes()
 }
-
-// Ensure auth is imported (used via APIClient).
-var _ = auth.Config{}
