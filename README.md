@@ -43,14 +43,18 @@ make install        # installs to $GOPATH/bin
 
 ## Usage
 
-### Mount
+apimount exposes both a FUSE frontend and a direct HTTP CLI. Pick whichever fits:
+
+### Mount (FUSE frontend)
 
 ```bash
-apimount \
+apimount serve fuse \
   --spec ./petstore.yaml \
   --base-url https://petstore3.swagger.io/api/v3 \
   --mount /tmp/petstore
 ```
+
+The legacy `apimount --spec S --mount M` invocation still works and prints a deprecation notice pointing at `serve fuse`.
 
 ### Unmount
 
@@ -62,18 +66,51 @@ umount /tmp/petstore
 fusermount -u /tmp/petstore
 ```
 
-### Dry run (print filesystem tree without mounting)
+### Call HTTP endpoints directly
+
+```bash
+apimount --spec ./petstore.yaml --base-url $URL get /pet/42
+apimount --spec ./petstore.yaml --base-url $URL post /pet \
+  --body '{"name":"Rex","photoUrls":[]}'
+apimount --spec ./petstore.yaml --base-url $URL call GET /pet/findByStatus \
+  --query status=available
+```
+
+The spec's operations are matched by method + concrete path; literal segments win over `{param}` segments when both could match. `get/post/put/patch/delete` are thin aliases for `call METHOD PATH`.
+
+Flags: `--query key=val` (repeatable), `--header key=val` (repeatable, Phase 4), `--body '<raw>'`, `--body-file path` (use `-` for stdin).
+
+### Dry run / tree / validate
 
 ```bash
 apimount --spec ./petstore.yaml --dry-run
 apimount tree --spec ./petstore.yaml --group-by path
-```
-
-### Validate a spec
-
-```bash
 apimount validate --spec https://petstore3.swagger.io/api/v3/openapi.json
 ```
+
+### Diff two specs
+
+```bash
+apimount spec diff old.yaml new.yaml
+```
+
+Uses `libopenapi/what-changed` to report added/removed/modified properties and objects. Exits non-zero if any breaking change is detected.
+
+### Profiles
+
+```bash
+apimount profile list             # list profiles from ~/.apimount.yaml
+apimount profile show github      # print profile (auth values redacted)
+apimount profile use github       # print the invocation line to use
+```
+
+### Doctor
+
+```bash
+apimount doctor
+```
+
+Reports OS/arch, Go runtime, FUSE userspace detection (fusermount/macFUSE), spec reachability, and whether a config file was found.
 
 ---
 
