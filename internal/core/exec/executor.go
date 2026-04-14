@@ -1,4 +1,4 @@
-package http
+package exec
 
 import (
 	"bytes"
@@ -8,31 +8,37 @@ import (
 	"net/url"
 	"strings"
 	"syscall"
+	"time"
 
-	"github.com/apimount/apimount/internal/cache"
-	"github.com/apimount/apimount/internal/spec"
+	"github.com/apimount/apimount/internal/core/auth"
+	"github.com/apimount/apimount/internal/core/cache"
+	"github.com/apimount/apimount/internal/core/spec"
 )
 
-// Executor executes HTTP operations derived from the filesystem tree.
+// Executor orchestrates the full pipeline: cache lookup → auth → HTTP → cache store.
+// Additional middlewares (retry, ratelimit, pagination) are added in later phases.
 type Executor struct {
 	client     *APIClient
 	cache      *cache.Cache
 	baseURL    string
 	prettyJSON bool
+	handler    Handler // assembled middleware chain
 }
 
 // NewExecutor creates a new Executor.
-func NewExecutor(client *APIClient, cache *cache.Cache, baseURL string, prettyJSON bool) *Executor {
-	return &Executor{
+func NewExecutor(client *APIClient, c *cache.Cache, baseURL string, prettyJSON bool) *Executor {
+	e := &Executor{
 		client:     client,
-		cache:      cache,
+		cache:      c,
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		prettyJSON: prettyJSON,
 	}
+	e.handler = chain(e.transport, nil) // Phase 4 will add retry/ratelimit here
+	return e
 }
 
 // ExecuteGET executes an HTTP GET for the given operation and path params.
-// Returns (body, errno, error).
+// Returns (body, errno, error) — errno is 0 on success.
 func (e *Executor) ExecuteGET(ctx context.Context, op *spec.Operation, pathParams map[string]string, queryParams map[string]string) ([]byte, syscall.Errno, error) {
 	resolvedURL, err := e.resolveURL(op.Path, pathParams)
 	if err != nil {
@@ -44,7 +50,7 @@ func (e *Executor) ExecuteGET(ctx context.Context, op *spec.Operation, pathParam
 		return cached, 0, nil
 	}
 
-	resp, err := e.client.Execute(ctx, &Request{
+	resp, err := e.client.Execute(ctx, &HTTPRequest{
 		Method:      "GET",
 		URL:         resolvedURL,
 		QueryParams: queryParams,
@@ -54,7 +60,7 @@ func (e *Executor) ExecuteGET(ctx context.Context, op *spec.Operation, pathParam
 		return nil, httpErrToErrno(err), err
 	}
 
-	body, errno := e.processResponse(resp, op)
+	body, errno := e.processResponse(resp)
 	if errno != 0 {
 		return body, errno, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(resp.Body))
 	}
@@ -76,7 +82,7 @@ func (e *Executor) ExecuteWrite(ctx context.Context, op *spec.Operation, pathPar
 		ct = op.RequestBody.ContentType
 	}
 
-	resp, err := e.client.Execute(ctx, &Request{
+	resp, err := e.client.Execute(ctx, &HTTPRequest{
 		Method:      op.Method,
 		URL:         resolvedURL,
 		Body:        body,
@@ -87,30 +93,40 @@ func (e *Executor) ExecuteWrite(ctx context.Context, op *spec.Operation, pathPar
 		return nil, httpErrToErrno(err), err
 	}
 
-	// Invalidate GET cache for this path and parent
 	e.cache.Invalidate(resolvedURL)
 	if parent := parentPath(resolvedURL); parent != "" {
 		e.cache.Invalidate(parent)
 	}
 
-	responseBody, errno := e.processResponse(resp, op)
+	responseBody, errno := e.processResponse(resp)
 	if errno != 0 {
 		return responseBody, errno, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(resp.Body))
 	}
 	return responseBody, 0, nil
 }
 
-// FormatFullResponse returns the full response in HTTP/1.1-style format.
-func (e *Executor) FormatFullResponse(resp *Response) []byte {
-	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("HTTP/1.1 %d\n", resp.StatusCode))
-	for k, v := range resp.Headers {
-		buf.WriteString(fmt.Sprintf("%s: %s\n", k, v))
+// transport is the terminal handler: it calls the underlying APIClient.
+func (e *Executor) transport(ctx context.Context, req *Request) (*Result, error) {
+	start := time.Now()
+	resp, err := e.client.Execute(ctx, &HTTPRequest{
+		Method:      req.Op.Method,
+		URL:         e.baseURL + req.Op.Path,
+		QueryParams: req.QueryParams,
+		Body:        req.Body,
+		OpSecurity:  req.Op.Security,
+	})
+	if err != nil {
+		return nil, err
 	}
-	buf.WriteString("\n")
-	buf.Write(resp.Body)
-	buf.WriteString("\n")
-	return buf.Bytes()
+	body, errno := e.processResponse(resp)
+	return &Result{
+		Status:     resp.StatusCode,
+		Headers:    resp.Headers,
+		Body:       body,
+		Errno:      errno,
+		DurationMs: time.Since(start).Milliseconds(),
+		Attempts:   1,
+	}, nil
 }
 
 func (e *Executor) resolveURL(path string, pathParams map[string]string) (string, error) {
@@ -121,25 +137,21 @@ func (e *Executor) resolveURL(path string, pathParams map[string]string) (string
 	return e.baseURL + resolved, nil
 }
 
-func (e *Executor) processResponse(resp *Response, op *spec.Operation) ([]byte, syscall.Errno) {
+func (e *Executor) processResponse(resp *HTTPResponse) ([]byte, syscall.Errno) {
 	if errno := statusToErrno(resp.StatusCode); errno != 0 {
-		msg := errorMessage(resp)
-		return []byte(msg), errno
+		return []byte(errorMessage(resp)), errno
 	}
-
 	body := resp.Body
 	if e.prettyJSON && isJSON(resp) {
 		if pretty, err := prettyPrint(body); err == nil {
 			body = pretty
 		}
 	}
-	_ = op
 	return body, 0
 }
 
-func isJSON(resp *Response) bool {
-	ct := resp.Headers["Content-Type"]
-	return strings.Contains(ct, "json")
+func isJSON(resp *HTTPResponse) bool {
+	return strings.Contains(resp.Headers["Content-Type"], "json")
 }
 
 func prettyPrint(data []byte) ([]byte, error) {
@@ -150,7 +162,7 @@ func prettyPrint(data []byte) ([]byte, error) {
 	return json.MarshalIndent(v, "", "  ")
 }
 
-func errorMessage(resp *Response) string {
+func errorMessage(resp *HTTPResponse) string {
 	switch resp.StatusCode {
 	case 401:
 		return "401 Unauthorized: check auth flags\n"
@@ -159,9 +171,8 @@ func errorMessage(resp *Response) string {
 	case 404:
 		return "404 Not Found\n"
 	case 429:
-		retryAfter := resp.Headers["Retry-After"]
-		if retryAfter != "" {
-			return fmt.Sprintf("429 Rate Limited: retry after %ss\n", retryAfter)
+		if ra := resp.Headers["Retry-After"]; ra != "" {
+			return fmt.Sprintf("429 Rate Limited: retry after %ss\n", ra)
 		}
 		return "429 Rate Limited\n"
 	default:
@@ -220,3 +231,19 @@ func parentPath(urlStr string) string {
 	u.Path = p[:idx]
 	return u.String()
 }
+
+// FormatFullResponse returns the full response in HTTP/1.1-style format.
+func (e *Executor) FormatFullResponse(resp *HTTPResponse) []byte {
+	var buf bytes.Buffer
+	buf.WriteString(fmt.Sprintf("HTTP/1.1 %d\n", resp.StatusCode))
+	for k, v := range resp.Headers {
+		buf.WriteString(fmt.Sprintf("%s: %s\n", k, v))
+	}
+	buf.WriteString("\n")
+	buf.Write(resp.Body)
+	buf.WriteString("\n")
+	return buf.Bytes()
+}
+
+// Ensure auth is imported (used via APIClient).
+var _ = auth.Config{}

@@ -1,11 +1,12 @@
-package tree
+package plan
 
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
-	"github.com/apimount/apimount/internal/spec"
+	"github.com/apimount/apimount/internal/core/spec"
 )
 
 // BuildTree builds an FSNode tree from a ParsedSpec.
@@ -15,7 +16,6 @@ func BuildTree(ps *spec.ParsedSpec, groupBy string) *FSNode {
 
 	for i := range ps.Operations {
 		op := &ps.Operations[i]
-
 		switch groupBy {
 		case "path":
 			addOperationByPath(root, op)
@@ -26,24 +26,20 @@ func BuildTree(ps *spec.ParsedSpec, groupBy string) *FSNode {
 		}
 	}
 
-	// Add .help files to every dir and populate .schema static content
 	addHelpFilesRecursive(root, ps)
 	populateSchemaContent(root)
 
 	return root
 }
 
-// addOperationByTags groups operations under their first tag as top-level dir.
 func addOperationByTags(root *FSNode, op *spec.Operation) {
 	group := "untagged"
 	if len(op.Tags) > 0 {
 		group = op.Tags[0]
 	}
-
 	groupDir := getOrCreate(root, group, nil)
 
 	segments := splitPath(op.Path)
-	// Drop leading segment if it duplicates the tag group name
 	if len(segments) > 0 && segments[0] == group {
 		segments = segments[1:]
 	}
@@ -56,11 +52,9 @@ func addOperationByTags(root *FSNode, op *spec.Operation) {
 			current.ParamName = extractParamName(seg)
 		}
 	}
-
 	addOperationFiles(current, op)
 }
 
-// addOperationByPath groups operations by their path structure directly under root.
 func addOperationByPath(root *FSNode, op *spec.Operation) {
 	segments := splitPath(op.Path)
 	current := root
@@ -74,13 +68,11 @@ func addOperationByPath(root *FSNode, op *spec.Operation) {
 	addOperationFiles(current, op)
 }
 
-// addOperationFlat places all operations in a flat directory named by operationId.
 func addOperationFlat(root *FSNode, op *spec.Operation) {
 	dir := getOrCreate(root, op.OperationID, nil)
 	addOperationFiles(dir, op)
 }
 
-// addOperationFiles adds virtual operation files to a directory node.
 func addOperationFiles(dir *FSNode, op *spec.Operation) {
 	switch op.Method {
 	case "GET":
@@ -109,7 +101,6 @@ func addOperationFiles(dir *FSNode, op *spec.Operation) {
 	addFile(dir, ".response", FileRoleResponse, op)
 }
 
-// addFile adds a file node to a directory, skipping duplicates.
 func addFile(dir *FSNode, name string, role FileRole, op *spec.Operation) {
 	if _, exists := dir.Children[name]; exists {
 		return
@@ -117,7 +108,6 @@ func addFile(dir *FSNode, name string, role FileRole, op *spec.Operation) {
 	dir.Children[name] = NewFileNode(name, role, dir, op)
 }
 
-// getOrCreate returns an existing child dir or creates a new one.
 func getOrCreate(parent *FSNode, name string, pathParams map[string]string) *FSNode {
 	if child, ok := parent.Children[name]; ok {
 		return child
@@ -130,7 +120,6 @@ func getOrCreate(parent *FSNode, name string, pathParams map[string]string) *FSN
 	return child
 }
 
-// addHelpFilesRecursive adds .help files to every directory.
 func addHelpFilesRecursive(node *FSNode, ps *spec.ParsedSpec) {
 	if node.Type != NodeTypeDir {
 		return
@@ -146,14 +135,12 @@ func addHelpFilesRecursive(node *FSNode, ps *spec.ParsedSpec) {
 	}
 }
 
-// generateHelpContent generates the text content for a .help file.
 func generateHelpContent(dir *FSNode, ps *spec.ParsedSpec) string {
 	var sb strings.Builder
 
 	fmt.Fprintf(&sb, "Directory: %s\n", dirPath(dir))
 	sb.WriteString(strings.Repeat("━", 40) + "\n\n")
 
-	// Operations at this level
 	hasOps := false
 	for name, child := range dir.Children {
 		if child.Type != NodeTypeFile || child.Operation == nil {
@@ -180,7 +167,6 @@ func generateHelpContent(dir *FSNode, ps *spec.ParsedSpec) string {
 		sb.WriteString("No operations at this level. Browse subdirectories.\n")
 	}
 
-	// Files
 	sb.WriteString("\nFiles in this directory:\n")
 	for name, child := range dir.Children {
 		if child.Type != NodeTypeFile {
@@ -189,7 +175,6 @@ func generateHelpContent(dir *FSNode, ps *spec.ParsedSpec) string {
 		fmt.Fprintf(&sb, "  %-12s → %s\n", name, fileRoleDescription(child.Role))
 	}
 
-	// Subdirs
 	hasDirs := false
 	for name, child := range dir.Children {
 		if child.Type != NodeTypeDir {
@@ -238,7 +223,6 @@ func fileRoleDescription(role FileRole) string {
 	return "unknown"
 }
 
-// dirPath returns a human-readable path for a directory node.
 func dirPath(node *FSNode) string {
 	var parts []string
 	for cur := node; cur != nil && cur.Name != "/"; cur = cur.Parent {
@@ -250,9 +234,8 @@ func dirPath(node *FSNode) string {
 	return "/" + strings.Join(parts, "/")
 }
 
-// splitPath splits an OpenAPI path into segments, removing empty parts.
 func splitPath(path string) []string {
-	out := []string{}
+	var out []string
 	for _, p := range strings.Split(strings.Trim(path, "/"), "/") {
 		if p != "" {
 			out = append(out, p)
@@ -261,22 +244,18 @@ func splitPath(path string) []string {
 	return out
 }
 
-// isPathParam returns true if the segment is a path parameter like {petId}.
 func isPathParam(seg string) bool {
 	return strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}")
 }
 
-// extractParamName extracts "petId" from "{petId}".
 func extractParamName(seg string) string {
 	return strings.TrimSuffix(strings.TrimPrefix(seg, "{"), "}")
 }
 
 // CloneWithBinding clones a subtree binding a path param to a concrete value.
-// All descendant file nodes inherit the binding in their PathParams.
 func CloneWithBinding(template *FSNode, paramName, paramValue string, parent *FSNode) *FSNode {
 	cloned := NewDirNode(paramValue, parent)
 
-	// Inherit path params from parent chain, then add the new binding
 	for k, v := range parent.PathParams {
 		cloned.PathParams[k] = v
 	}
@@ -303,7 +282,6 @@ func CloneWithBinding(template *FSNode, paramName, paramValue string, parent *FS
 	return cloned
 }
 
-// populateSchemaContent walks the tree and sets StaticContent on all .schema nodes.
 func populateSchemaContent(node *FSNode) {
 	if node.Type == NodeTypeFile && node.Role == FileRoleSchema {
 		node.StaticContent = generateSchemaJSON(node.Operation)
@@ -314,7 +292,6 @@ func populateSchemaContent(node *FSNode) {
 	}
 }
 
-// generateSchemaJSON produces a pretty-printed JSON schema from an operation's request body.
 func generateSchemaJSON(op *spec.Operation) []byte {
 	if op == nil || op.RequestBody == nil {
 		return []byte("{}\n")
@@ -370,11 +347,15 @@ func generateSchemaJSON(op *spec.Operation) []byte {
 	return append(data, '\n')
 }
 
+// PrintTree returns a string representation of the full tree.
+func PrintTree(root *FSNode) string {
+	return printNode(root, "")
+}
+
 func printNode(node *FSNode, indent string) string {
 	var sb strings.Builder
 	if node.Type == NodeTypeDir {
 		if node.Name == "/" {
-			// Root: skip the "/" line, print children directly
 			for _, child := range sortedChildren(node) {
 				sb.WriteString(printNode(child, indent))
 			}
@@ -390,10 +371,9 @@ func printNode(node *FSNode, indent string) string {
 	return sb.String()
 }
 
-// sortedChildren returns children sorted: dirs first, then files, each group alphabetical.
 func sortedChildren(node *FSNode) []*FSNode {
-	dirs := make([]*FSNode, 0, len(node.Children))
-	files := make([]*FSNode, 0, len(node.Children))
+	dirs := make([]*FSNode, 0)
+	files := make([]*FSNode, 0)
 	for _, child := range node.Children {
 		if child.Type == NodeTypeDir {
 			dirs = append(dirs, child)
@@ -401,20 +381,7 @@ func sortedChildren(node *FSNode) []*FSNode {
 			files = append(files, child)
 		}
 	}
-	sortNodes(dirs)
-	sortNodes(files)
+	sort.Slice(dirs, func(i, j int) bool { return dirs[i].Name < dirs[j].Name })
+	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
 	return append(dirs, files...)
-}
-
-func sortNodes(nodes []*FSNode) {
-	for i := 1; i < len(nodes); i++ {
-		for j := i; j > 0 && nodes[j].Name < nodes[j-1].Name; j-- {
-			nodes[j], nodes[j-1] = nodes[j-1], nodes[j]
-		}
-	}
-}
-
-// PrintTree returns a string representation of the full tree rooted at root.
-func PrintTree(root *FSNode) string {
-	return printNode(root, "")
 }

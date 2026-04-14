@@ -6,12 +6,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 	"time"
 )
 
 // LoadSpec loads an OpenAPI spec from a local file path or remote URL.
-// Returns raw bytes and the content type hint (for YAML vs JSON detection).
 func LoadSpec(pathOrURL string) ([]byte, error) {
 	if isURL(pathOrURL) {
 		return loadFromURL(pathOrURL)
@@ -36,9 +34,6 @@ func loadFromURL(rawURL string) ([]byte, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get(rawURL)
 	if err != nil {
-		if strings.Contains(err.Error(), "connection refused") {
-			return nil, fmt.Errorf("could not load spec: connection refused (%s)", rawURL)
-		}
 		return nil, fmt.Errorf("could not load spec from URL %q: %w", rawURL, err)
 	}
 	defer resp.Body.Close()

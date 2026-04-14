@@ -78,12 +78,10 @@ func (c *Cache) Set(key string, value []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Remove existing entry if present
 	if old, ok := c.entries[key]; ok {
 		c.curSize -= old.size
 	}
 
-	// Evict LRU-ish entries if over max size
 	for c.maxSize > 0 && c.curSize+size > c.maxSize {
 		c.evictOne()
 	}
@@ -96,7 +94,7 @@ func (c *Cache) Set(key string, value []byte) {
 	c.curSize += size
 }
 
-// Invalidate removes all cache entries whose keys have the given prefix.
+// Invalidate removes all cache entries whose keys contain the given prefix.
 func (c *Cache) Invalidate(prefix string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -119,7 +117,6 @@ func (c *Cache) evictOne() {
 			return
 		}
 	}
-	// No expired entries — evict any
 	for key, e := range c.entries {
 		c.curSize -= e.size
 		_ = e
@@ -130,11 +127,11 @@ func (c *Cache) evictOne() {
 
 // StartEviction starts a background goroutine that periodically removes expired entries.
 func (c *Cache) StartEviction() {
+	if c.ttl == 0 {
+		return
+	}
 	go func() {
 		ticker := time.NewTicker(c.ttl / 2)
-		if c.ttl == 0 {
-			return
-		}
 		for range ticker.C {
 			c.evictExpired()
 		}

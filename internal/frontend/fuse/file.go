@@ -1,4 +1,4 @@
-package fs
+package fuse
 
 import (
 	"bytes"
@@ -8,26 +8,24 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/hanwen/go-fuse/v2/fs"
+	gofs "github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
-	"go.uber.org/zap"
 
-	"github.com/apimount/apimount/internal/tree"
+	"github.com/apimount/apimount/internal/core/plan"
 )
 
 // FileNode is a FUSE inode representing a virtual file.
 type FileNode struct {
-	fs.Inode
-	treeNode *tree.FSNode
+	gofs.Inode
+	treeNode *plan.FSNode
 	apifs    *APIFS
 }
 
-var _ fs.NodeGetattrer = (*FileNode)(nil)
-var _ fs.NodeOpener = (*FileNode)(nil)
-var _ fs.NodeSetattrer = (*FileNode)(nil)
+var _ gofs.NodeGetattrer = (*FileNode)(nil)
+var _ gofs.NodeOpener = (*FileNode)(nil)
+var _ gofs.NodeSetattrer = (*FileNode)(nil)
 
-// Getattr returns file attributes.
-func (f *FileNode) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
+func (f *FileNode) Getattr(_ context.Context, _ gofs.FileHandle, out *fuse.AttrOut) syscall.Errno {
 	out.Mode = fileMode(f.treeNode)
 	if f.treeNode.StaticContent != nil {
 		out.Size = uint64(len(f.treeNode.StaticContent))
@@ -40,24 +38,23 @@ func (f *FileNode) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.Attr
 		}
 		out.Size = sz
 	}
-	return fs.OK
+	return gofs.OK
 }
 
 // Setattr accepts size/mode changes (needed for O_TRUNC on Linux write redirection).
-func (f *FileNode) Setattr(ctx context.Context, fh fs.FileHandle, in *fuse.SetAttrIn, out *fuse.AttrOut) syscall.Errno {
+func (f *FileNode) Setattr(_ context.Context, _ gofs.FileHandle, in *fuse.SetAttrIn, out *fuse.AttrOut) syscall.Errno {
 	out.Mode = fileMode(f.treeNode)
 	out.Size = in.Size
-	return fs.OK
+	return gofs.OK
 }
 
-// Open opens the file and returns a FileHandle.
-func (f *FileNode) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
+func (f *FileNode) Open(_ context.Context, flags uint32) (gofs.FileHandle, uint32, syscall.Errno) {
 	fh := &fileHandle{
 		node:  f,
 		flags: flags,
 		buf:   &bytes.Buffer{},
 	}
-	return fh, fuse.FOPEN_DIRECT_IO, fs.OK
+	return fh, fuse.FOPEN_DIRECT_IO, gofs.OK
 }
 
 // fileHandle holds per-open-file state.
@@ -67,21 +64,21 @@ type fileHandle struct {
 	buf         *bytes.Buffer
 	content     []byte
 	contentOnce bool
-	flushed     bool      // guard against double-Flush
+	flushed     bool
 	mu          sync.Mutex
 }
 
-var _ fs.FileReader = (*fileHandle)(nil)
-var _ fs.FileWriter = (*fileHandle)(nil)
-var _ fs.FileReleaser = (*fileHandle)(nil)
-var _ fs.FileFlusher = (*fileHandle)(nil)
+var _ gofs.FileReader = (*fileHandle)(nil)
+var _ gofs.FileWriter = (*fileHandle)(nil)
+var _ gofs.FileReleaser = (*fileHandle)(nil)
+var _ gofs.FileFlusher = (*fileHandle)(nil)
 
 // Read serves file content. For GET files, executes HTTP on first read.
 func (fh *fileHandle) Read(ctx context.Context, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
 	if !fh.contentOnce {
 		content, err := fh.fetchContent(ctx)
 		if err != nil {
-			fh.node.apifs.logger.Debug("read error", zap.Error(err))
+			fh.node.apifs.logger.Debug("read error", "err", err)
 			content = []byte(err.Error() + "\n")
 		}
 		fh.content = content
@@ -89,13 +86,13 @@ func (fh *fileHandle) Read(ctx context.Context, dest []byte, off int64) (fuse.Re
 	}
 
 	if off >= int64(len(fh.content)) {
-		return fuse.ReadResultData(nil), fs.OK
+		return fuse.ReadResultData(nil), gofs.OK
 	}
 	end := off + int64(len(dest))
 	if end > int64(len(fh.content)) {
 		end = int64(len(fh.content))
 	}
-	return fuse.ReadResultData(fh.content[off:end]), fs.OK
+	return fuse.ReadResultData(fh.content[off:end]), gofs.OK
 }
 
 func (fh *fileHandle) fetchContent(ctx context.Context) ([]byte, error) {
@@ -103,16 +100,16 @@ func (fh *fileHandle) fetchContent(ctx context.Context) ([]byte, error) {
 	apifs := fh.node.apifs
 
 	switch n.Role {
-	case tree.FileRoleHelp:
+	case plan.FileRoleHelp:
 		return resolveHelpContent(n), nil
 
-	case tree.FileRoleSchema:
+	case plan.FileRoleSchema:
 		if n.StaticContent != nil {
 			return n.StaticContent, nil
 		}
 		return []byte("{}\n"), nil
 
-	case tree.FileRoleResponse:
+	case plan.FileRoleResponse:
 		n.Mu.RLock()
 		resp := make([]byte, len(n.LastResponse))
 		copy(resp, n.LastResponse)
@@ -122,8 +119,7 @@ func (fh *fileHandle) fetchContent(ctx context.Context) ([]byte, error) {
 		}
 		return resp, nil
 
-	case tree.FileRoleGET:
-		// Merge own QueryParams with any stored in the sibling .query node.
+	case plan.FileRoleGET:
 		params := copyParams(n.QueryParams)
 		if n.Parent != nil {
 			if qNode, ok := n.Parent.Children[".query"]; ok {
@@ -134,25 +130,25 @@ func (fh *fileHandle) fetchContent(ctx context.Context) ([]byte, error) {
 				qNode.Mu.RUnlock()
 			}
 		}
-		body, _, err := apifs.exec.ExecuteGET(ctx, n.Operation, n.PathParams, params)
+		body, _, err := apifs.ex.ExecuteGET(ctx, n.Operation, n.PathParams, params)
 		storeResponse(n, body)
 		if err != nil {
-			return body, nil // return error body, not an error (so cat shows the message)
+			return body, nil
 		}
 		return body, nil
 
-	case tree.FileRoleQuery:
+	case plan.FileRoleQuery:
 		n.Mu.RLock()
 		params := copyParams(n.QueryParams)
 		n.Mu.RUnlock()
 		if len(params) == 0 {
 			return []byte("(write query params as key=val&key2=val2, then read to execute GET)\n"), nil
 		}
-		body, _, _ := apifs.exec.ExecuteGET(ctx, n.Operation, n.PathParams, params)
+		body, _, _ := apifs.ex.ExecuteGET(ctx, n.Operation, n.PathParams, params)
 		storeResponse(n, body)
 		return body, nil
 
-	case tree.FileRolePost, tree.FileRolePut, tree.FileRolePatch, tree.FileRoleDelete:
+	case plan.FileRolePost, plan.FileRolePut, plan.FileRolePatch, plan.FileRoleDelete:
 		n.Mu.RLock()
 		resp := make([]byte, len(n.LastResponse))
 		copy(resp, n.LastResponse)
@@ -166,67 +162,73 @@ func (fh *fileHandle) fetchContent(ctx context.Context) ([]byte, error) {
 	return []byte{}, nil
 }
 
-// resolveHelpContent returns help text with path params substituted into the path.
-func resolveHelpContent(n *tree.FSNode) []byte {
+func resolveHelpContent(n *plan.FSNode) []byte {
 	if n.StaticContent == nil {
 		return []byte("(no help available)\n")
 	}
 	content := string(n.StaticContent)
-	// Replace any {paramName} occurrences in the displayed paths with the bound values.
 	for param, value := range n.PathParams {
 		content = strings.ReplaceAll(content, "{"+param+"}", value)
 	}
 	return []byte(content)
 }
 
-func roleHint(role tree.FileRole) string {
+func roleHint(role plan.FileRole) string {
 	switch role {
-	case tree.FileRolePost:
+	case plan.FileRolePost:
 		return "(write JSON body to execute POST, then read for response)\n"
-	case tree.FileRolePut:
+	case plan.FileRolePut:
 		return "(write JSON body to execute PUT, then read for response)\n"
-	case tree.FileRolePatch:
+	case plan.FileRolePatch:
 		return "(write JSON body to execute PATCH, then read for response)\n"
-	case tree.FileRoleDelete:
+	case plan.FileRoleDelete:
 		return "(write anything to execute DELETE, then read for response)\n"
 	}
 	return ""
 }
 
-// Write buffers data; execution happens on Flush.
-func (fh *fileHandle) Write(ctx context.Context, data []byte, off int64) (uint32, syscall.Errno) {
+// Write buffers data; execution happens on Flush/Release.
+func (fh *fileHandle) Write(_ context.Context, data []byte, off int64) (uint32, syscall.Errno) {
 	n := fh.node.treeNode
 	if fh.node.apifs.cfg.ReadOnly {
 		return 0, syscall.EPERM
 	}
-
 	switch n.Role {
-	case tree.FileRolePost, tree.FileRolePut, tree.FileRolePatch, tree.FileRoleDelete, tree.FileRoleQuery:
+	case plan.FileRolePost, plan.FileRolePut, plan.FileRolePatch, plan.FileRoleDelete, plan.FileRoleQuery:
 		if off == 0 {
 			fh.buf.Reset()
 		}
 		fh.buf.Write(data)
-		return uint32(len(data)), fs.OK
+		return uint32(len(data)), gofs.OK
 	default:
 		return 0, syscall.EPERM
 	}
 }
 
-// Flush executes the buffered write operation. Called once per close.
+// Flush is called on each close(). Execute here for macOS (FUSE_FLUSH always complete).
 func (fh *fileHandle) Flush(ctx context.Context) syscall.Errno {
 	fh.mu.Lock()
 	defer fh.mu.Unlock()
 	if fh.flushed {
-		return fs.OK // guard against duplicate flushes from dup'd fds
+		return gofs.OK
 	}
-	errno := fh.executeWrite(ctx)
-	fh.flushed = true
-	return errno
+	if fh.buf.Len() > 0 {
+		errno := fh.executeWrite(ctx)
+		fh.flushed = true
+		return errno
+	}
+	return gofs.OK
 }
 
-// Release is the final cleanup after all file descriptors are closed.
-func (fh *fileHandle) Release(ctx context.Context) syscall.Errno {
-	return fs.OK
+// Release is the final cleanup. On Linux, FUSE_WRITE may arrive after FUSE_FLUSH.
+func (fh *fileHandle) Release(_ context.Context) syscall.Errno {
+	fh.mu.Lock()
+	defer fh.mu.Unlock()
+	if !fh.flushed && fh.buf.Len() > 0 {
+		fh.executeWrite(context.Background())
+		fh.flushed = true
+	}
+	return gofs.OK
 }
 
 func (fh *fileHandle) executeWrite(ctx context.Context) syscall.Errno {
@@ -235,26 +237,26 @@ func (fh *fileHandle) executeWrite(ctx context.Context) syscall.Errno {
 	data := fh.buf.Bytes()
 
 	switch n.Role {
-	case tree.FileRoleQuery:
+	case plan.FileRoleQuery:
 		if len(data) == 0 {
-			return fs.OK
+			return gofs.OK
 		}
 		parsed := parseQueryString(strings.TrimSpace(string(data)))
 		n.Mu.Lock()
 		n.QueryParams = parsed
 		n.Mu.Unlock()
-		return fs.OK
+		return gofs.OK
 
-	case tree.FileRolePost, tree.FileRolePut, tree.FileRolePatch:
+	case plan.FileRolePost, plan.FileRolePut, plan.FileRolePatch:
 		if len(data) == 0 {
-			return fs.OK
+			return gofs.OK
 		}
-		body, errno, err := apifs.exec.ExecuteWrite(ctx, n.Operation, n.PathParams, nil, data)
+		body, errno, err := apifs.ex.ExecuteWrite(ctx, n.Operation, n.PathParams, nil, data)
 		if err != nil {
 			apifs.logger.Debug("write error",
-				zap.String("method", n.Operation.Method),
-				zap.String("path", n.Operation.Path),
-				zap.Error(err),
+				"method", n.Operation.Method,
+				"path", n.Operation.Path,
+				"err", err,
 			)
 		}
 		if len(body) == 0 {
@@ -263,31 +265,26 @@ func (fh *fileHandle) executeWrite(ctx context.Context) syscall.Errno {
 		storeResponse(n, body)
 		return errno
 
-	case tree.FileRoleDelete:
-		// DELETE executes on any write (including empty — e.g. echo "" > .delete)
-		body, errno, err := apifs.exec.ExecuteWrite(ctx, n.Operation, n.PathParams, nil, nil)
+	case plan.FileRoleDelete:
+		body, errno, err := apifs.ex.ExecuteWrite(ctx, n.Operation, n.PathParams, nil, nil)
 		if err != nil {
-			apifs.logger.Debug("delete error",
-				zap.String("path", n.Operation.Path),
-				zap.Error(err),
-			)
+			apifs.logger.Debug("delete error", "path", n.Operation.Path, "err", err)
 		}
 		storeResponse(n, body)
 		return errno
 	}
 
-	return fs.OK
+	return gofs.OK
 }
 
 // storeResponse writes the response into the operation file and the sibling .response file.
-func storeResponse(n *tree.FSNode, body []byte) {
+func storeResponse(n *plan.FSNode, body []byte) {
 	formatted := prettyFormat(body)
 
 	n.Mu.Lock()
 	n.LastResponse = formatted
 	n.Mu.Unlock()
 
-	// Propagate to the sibling .response file (different mutex — safe)
 	if n.Parent != nil {
 		if respFile, ok := n.Parent.Children[".response"]; ok && respFile != n {
 			respFile.Mu.Lock()
@@ -297,7 +294,6 @@ func storeResponse(n *tree.FSNode, body []byte) {
 	}
 }
 
-// prettyFormat pretty-prints JSON if valid, otherwise returns as-is.
 func prettyFormat(body []byte) []byte {
 	if json.Valid(body) {
 		if pretty, err := json.MarshalIndent(json.RawMessage(body), "", "  "); err == nil {
@@ -307,7 +303,6 @@ func prettyFormat(body []byte) []byte {
 	return body
 }
 
-// parseQueryString parses "key=val&key2=val2" into a map.
 func parseQueryString(s string) map[string]string {
 	result := make(map[string]string)
 	for _, part := range strings.Split(s, "&") {

@@ -1,9 +1,10 @@
-package tree
+// Package plan builds and holds the virtual filesystem tree derived from a ParsedSpec.
+package plan
 
 import (
 	"sync"
 
-	"github.com/apimount/apimount/internal/spec"
+	"github.com/apimount/apimount/internal/core/spec"
 )
 
 // NodeType distinguishes directories from virtual files.
@@ -24,7 +25,7 @@ const (
 	FileRoleDelete                    // write → HTTP DELETE
 	FileRolePatch                     // write → HTTP PATCH
 	FileRoleSchema                    // read → JSON schema of request body (static)
-	FileRoleQuery                     // write query params, read triggers GET with them
+	FileRoleQuery                     // write query params, read triggers GET with those params
 	FileRoleHelp                      // read → human-readable description (static)
 	FileRoleResponse                  // read → last response for this path (volatile)
 )
@@ -44,12 +45,13 @@ type FSNode struct {
 	// For file nodes: the HTTP operation to execute
 	Operation *spec.Operation
 
-	// Static content (for schema, help files)
+	// Static content (for .schema, .help files)
 	StaticContent []byte
 
-	// Runtime state
+	// Runtime state — frontends copy these into per-open session objects;
+	// the tree itself only stores the last-known values for warming .response reads.
 	Mu           sync.RWMutex
-	LastResponse []byte            // cached last response body
+	LastResponse []byte            // last response body
 	QueryParams  map[string]string // accumulated query params
 
 	// Path param bindings accumulated from parent dirs

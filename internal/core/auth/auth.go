@@ -1,11 +1,11 @@
+// Package auth provides pluggable authentication injection for outbound HTTP requests.
 package auth
 
 import (
 	"encoding/base64"
 	"fmt"
-	"strings"
 
-	"github.com/apimount/apimount/internal/spec"
+	"github.com/apimount/apimount/internal/core/spec"
 )
 
 // Config holds the auth credentials provided by the user.
@@ -16,7 +16,8 @@ type Config struct {
 	APIKeyParam string // param name override (if not in spec)
 }
 
-// Injector applies auth headers/params to a request.
+// Injector applies auth headers/params to a request based on the spec's security schemes
+// and the user-supplied Config.
 type Injector struct {
 	cfg     *Config
 	schemes []spec.AuthScheme
@@ -24,17 +25,18 @@ type Injector struct {
 
 // NewInjector creates a new auth injector.
 func NewInjector(cfg *Config, schemes []spec.AuthScheme) *Injector {
+	if cfg == nil {
+		cfg = &Config{}
+	}
 	return &Injector{cfg: cfg, schemes: schemes}
 }
 
 // Apply injects auth into the given headers and queryParams maps.
-// It resolves the scheme by looking at operationSecurity first, then spec schemes.
 func (inj *Injector) Apply(
 	operationSecurity []spec.SecurityReq,
 	headers map[string]string,
 	queryParams map[string]string,
 ) {
-	// Determine which schemes to apply
 	schemasToApply := inj.resolveSchemes(operationSecurity)
 
 	for _, schemeName := range schemasToApply {
@@ -42,7 +44,6 @@ func (inj *Injector) Apply(
 		inj.applyScheme(scheme, schemeName, headers, queryParams)
 	}
 
-	// If no schemes resolved from spec but we have credentials, apply them directly
 	if len(schemasToApply) == 0 {
 		inj.applyDirectCredentials(headers, queryParams)
 	}
@@ -63,7 +64,6 @@ func (inj *Injector) resolveSchemes(opSecurity []spec.SecurityReq) []string {
 		}
 		return names
 	}
-	// Fall back to all spec schemes
 	var names []string
 	for _, s := range inj.schemes {
 		names = append(names, s.Name)
@@ -86,6 +86,7 @@ func (inj *Injector) applyScheme(
 	headers map[string]string,
 	queryParams map[string]string,
 ) {
+	_ = schemeName
 	if scheme == nil {
 		inj.applyDirectCredentials(headers, queryParams)
 		return
@@ -93,7 +94,7 @@ func (inj *Injector) applyScheme(
 
 	switch scheme.Type {
 	case "http":
-		switch strings.ToLower(scheme.Scheme) {
+		switch scheme.Scheme {
 		case "bearer":
 			if inj.cfg.Bearer != "" {
 				headers["Authorization"] = "Bearer " + inj.cfg.Bearer
@@ -119,7 +120,6 @@ func (inj *Injector) applyScheme(
 			queryParams[param] = key
 		}
 	}
-	_ = schemeName
 }
 
 func (inj *Injector) applyDirectCredentials(headers map[string]string, queryParams map[string]string) {
@@ -131,7 +131,6 @@ func (inj *Injector) applyDirectCredentials(headers map[string]string, queryPara
 	if inj.cfg.APIKey != "" {
 		param := inj.cfg.APIKeyParam
 		if param == "" {
-			// Try to find from schemes
 			for _, s := range inj.schemes {
 				if s.Type == "apiKey" {
 					param = s.Param

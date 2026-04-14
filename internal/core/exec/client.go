@@ -1,4 +1,4 @@
-package http
+package exec
 
 import (
 	"bytes"
@@ -9,18 +9,18 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/apimount/apimount/internal/auth"
-	"github.com/apimount/apimount/internal/spec"
+	"github.com/apimount/apimount/internal/core/auth"
+	"github.com/apimount/apimount/internal/core/spec"
 )
 
 // APIClient is the HTTP client with auth injection.
 type APIClient struct {
-	httpClient  *http.Client
+	httpClient   *http.Client
 	authInjector *auth.Injector
 }
 
-// Request is the internal HTTP request descriptor.
-type Request struct {
+// HTTPRequest is the internal HTTP request descriptor.
+type HTTPRequest struct {
 	Method      string
 	URL         string
 	Headers     map[string]string
@@ -30,8 +30,8 @@ type Request struct {
 	OpSecurity  []spec.SecurityReq
 }
 
-// Response is the internal HTTP response descriptor.
-type Response struct {
+// HTTPResponse is the internal HTTP response descriptor.
+type HTTPResponse struct {
 	StatusCode int
 	Headers    map[string]string
 	Body       []byte
@@ -43,15 +43,17 @@ func NewAPIClient(timeout time.Duration, authCfg *auth.Config, schemes []spec.Au
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
+	if authCfg == nil {
+		authCfg = &auth.Config{}
+	}
 	return &APIClient{
-		httpClient:  &http.Client{Timeout: timeout},
+		httpClient:   &http.Client{Timeout: timeout},
 		authInjector: auth.NewInjector(authCfg, schemes),
 	}
 }
 
 // Execute runs an HTTP request and returns the response.
-func (c *APIClient) Execute(ctx context.Context, req *Request) (*Response, error) {
-	// Build URL with query params
+func (c *APIClient) Execute(ctx context.Context, req *HTTPRequest) (*HTTPResponse, error) {
 	rawURL := req.URL
 	if len(req.QueryParams) > 0 {
 		u, err := url.Parse(rawURL)
@@ -76,7 +78,6 @@ func (c *APIClient) Execute(ctx context.Context, req *Request) (*Response, error
 		return nil, fmt.Errorf("could not build HTTP request: %w", err)
 	}
 
-	// Set headers
 	if req.Headers == nil {
 		req.Headers = make(map[string]string)
 	}
@@ -84,14 +85,12 @@ func (c *APIClient) Execute(ctx context.Context, req *Request) (*Response, error
 		req.QueryParams = make(map[string]string)
 	}
 
-	// Inject auth
 	c.authInjector.Apply(req.OpSecurity, req.Headers, req.QueryParams)
 
 	for k, v := range req.Headers {
 		httpReq.Header.Set(k, v)
 	}
 
-	// Content-Type
 	if len(req.Body) > 0 {
 		ct := req.ContentType
 		if ct == "" {
@@ -100,7 +99,6 @@ func (c *APIClient) Execute(ctx context.Context, req *Request) (*Response, error
 		httpReq.Header.Set("Content-Type", ct)
 	}
 
-	// Accept JSON by default
 	if httpReq.Header.Get("Accept") == "" {
 		httpReq.Header.Set("Accept", "application/json")
 	}
@@ -113,7 +111,7 @@ func (c *APIClient) Execute(ctx context.Context, req *Request) (*Response, error
 	defer resp.Body.Close()
 	elapsed := time.Since(start)
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10MB limit
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 32*1024*1024)) // 32 MB
 	if err != nil {
 		return nil, fmt.Errorf("could not read response body: %w", err)
 	}
@@ -123,7 +121,7 @@ func (c *APIClient) Execute(ctx context.Context, req *Request) (*Response, error
 		headers[k] = resp.Header.Get(k)
 	}
 
-	return &Response{
+	return &HTTPResponse{
 		StatusCode: resp.StatusCode,
 		Headers:    headers,
 		Body:       body,
