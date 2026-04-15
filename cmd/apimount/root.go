@@ -15,12 +15,21 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "apimount",
-	Short: "Mount any OpenAPI spec as a filesystem or call it directly",
-	Long: `apimount turns any OpenAPI 3.0/3.1 spec into a filesystem (FUSE, NFS, WebDAV),
-an MCP server, or a CLI HTTP client — all sharing the same execution core.
+	Short: "Universal OpenAPI adapter — CLI, MCP, WebDAV, NFS, FUSE",
+	Long: `apimount is a universal OpenAPI adapter. Point it at any OpenAPI 3.0/3.1
+spec and it exposes every operation through whichever surface you need:
 
-v1 compatibility: 'apimount --spec S --mount M' still works. It prints a
-deprecation warning and dispatches to 'apimount serve fuse'.`,
+  - CLI        (primary)   apimount call/get/post/put/patch/delete
+  - MCP        (planned)   apimount serve mcp  — drive APIs from Claude / agents
+  - WebDAV     (planned)   apimount serve webdav
+  - NFS        (planned)   apimount serve nfs
+  - FUSE       (optional)  apimount serve fuse — local, needs macFUSE/libfuse3
+
+All surfaces share one execution core (auth, retry, rate-limit, pagination,
+schema validation, RBAC, audit). The core has no knowledge of any frontend.
+
+v1 compatibility: 'apimount --spec S --mount M' still works; it prints a
+deprecation notice and dispatches to 'apimount serve fuse'.`,
 	RunE: runLegacyRoot,
 }
 
