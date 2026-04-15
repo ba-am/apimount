@@ -116,13 +116,45 @@ Reports OS / arch, Go runtime, spec reachability, and config file presence. (Als
 
 ## Auth
 
+### Static credentials
+
 ```bash
 apimount --auth-bearer ghp_xxxx ...
 apimount --auth-basic user:password ...
 apimount --auth-apikey mykey --auth-apikey-param X-Custom-Key ...
 ```
 
-Enterprise auth (OAuth2 flows, SigV4, mTLS, Vault / Keychain / 1Password secret providers) is scoped for Phase 3 — see [apimount_spec.md §14](apimount_spec.md#L750-L755).
+### OAuth2 client credentials (machine-to-machine)
+
+```bash
+apimount \
+  --auth-oauth2-client-id myapp \
+  --auth-oauth2-client-secret 'env:APP_SECRET' \
+  --auth-oauth2-token-url https://issuer.example.com/oauth/token \
+  --auth-oauth2-scopes read:pets,write:pets \
+  --spec ./petstore.yaml --base-url $URL \
+  get /pet/42
+```
+
+apimount exchanges the client ID/secret for an access token on first use and caches it until ~1 minute before expiry, refreshing automatically. No token touches disk.
+
+### Secret references
+
+Any credential flag (`--auth-bearer`, `--auth-apikey`, `--auth-oauth2-client-secret`) accepts an indirection instead of a literal value, so secrets never land in shell history or profile YAML:
+
+| Ref | Resolves to |
+|---|---|
+| `env:VAR_NAME` | `os.Getenv("VAR_NAME")` — errors if unset |
+| `file:/path/to/secret` | file contents (trailing newline trimmed); file must be chmod `0600` on Unix |
+| `literal:value` | the literal string `value` (opt-in, for completeness) |
+| anything else | treated as a literal (backwards compatible) |
+
+```bash
+# Read the OAuth2 secret from ~/.apimount/gh.secret (chmod 600)
+apimount --auth-oauth2-client-secret 'file:/Users/me/.apimount/gh.secret' ...
+```
+
+Remaining Phase 3 work (OAuth2 device code, authorization code + PKCE, mTLS, AWS SigV4, macOS Keychain / Linux Secret Service / HashiCorp Vault / 1Password secret backends) is scoped for a follow-up — see [apimount_spec.md §14](apimount_spec.md#L750-L755).
 
 ---
 

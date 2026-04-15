@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/apimount/apimount/internal/core/auth"
+	"github.com/apimount/apimount/internal/core/auth/secret"
 	"github.com/apimount/apimount/internal/core/cache"
 	"github.com/apimount/apimount/internal/core/exec"
 	"github.com/apimount/apimount/internal/core/spec"
@@ -48,21 +50,72 @@ func loadSpecFromFlags() (*loadedSpec, error) {
 	return &loadedSpec{ps: ps, baseURL: baseURL}, nil
 }
 
-// newExecutorFromFlags builds an Executor from the persistent flags on root.
-func newExecutorFromFlags(ls *loadedSpec) *exec.Executor {
+// newExecutorFromFlags builds an Executor from the persistent flags on root,
+// including any Phase 3 auth providers (OAuth2 client credentials today;
+// SigV4 / mTLS / device-code follow-ups later).
+func newExecutorFromFlags(ls *loadedSpec) (*exec.Executor, error) {
+	ctx := context.Background()
+	registry := secret.NewRegistry()
+
+	bearer, err := registry.Resolve(ctx, v.GetString("auth-bearer"))
+	if err != nil {
+		return nil, fmt.Errorf("resolve --auth-bearer: %w", err)
+	}
+	apiKey, err := registry.Resolve(ctx, v.GetString("auth-apikey"))
+	if err != nil {
+		return nil, fmt.Errorf("resolve --auth-apikey: %w", err)
+	}
+
 	authCfg := &auth.Config{
-		Bearer:      v.GetString("auth-bearer"),
+		Bearer:      bearer,
 		Basic:       v.GetString("auth-basic"),
-		APIKey:      v.GetString("auth-apikey"),
+		APIKey:      apiKey,
 		APIKeyParam: v.GetString("auth-apikey-param"),
 	}
 	timeout := v.GetDuration("timeout")
 	if timeout == 0 {
 		timeout = defaultTimeout
 	}
-	client := exec.NewAPIClient(timeout, authCfg, ls.ps.AuthSchemes)
+
+	chain, err := buildAuthChain(ctx, registry)
+	if err != nil {
+		return nil, err
+	}
+
+	client := exec.NewAPIClientWithChain(timeout, authCfg, ls.ps.AuthSchemes, chain)
 	c := cache.New(0, 0) // cache disabled for one-shot CLI invocations
-	return exec.NewExecutor(client, c, ls.baseURL, true)
+	return exec.NewExecutor(client, c, ls.baseURL, true), nil
+}
+
+// buildAuthChain assembles the Phase 3 auth.Chain from --auth-* flags. Secret
+// references (env:VAR, file:path, literal:x) are resolved before handing values
+// to providers, so an OAuth2 client-secret never touches argv or shell history.
+func buildAuthChain(ctx context.Context, registry *secret.Registry) (*auth.Chain, error) {
+	clientID := v.GetString("auth-oauth2-client-id")
+	clientSecretRef := v.GetString("auth-oauth2-client-secret")
+	tokenURL := v.GetString("auth-oauth2-token-url")
+	scopes := v.GetStringSlice("auth-oauth2-scopes")
+
+	// No OAuth2 flags → empty chain. The static injector still runs.
+	if clientID == "" && clientSecretRef == "" && tokenURL == "" {
+		return auth.NewChain(), nil
+	}
+
+	clientSecret, err := registry.Resolve(ctx, clientSecretRef)
+	if err != nil {
+		return nil, fmt.Errorf("resolve --auth-oauth2-client-secret: %w", err)
+	}
+
+	provider, err := auth.NewOAuth2CCProvider(auth.OAuth2CCConfig{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		TokenURL:     tokenURL,
+		Scopes:       scopes,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return auth.NewChain(provider), nil
 }
 
 // parseKVList parses a list of key=value strings into a map.

@@ -34,7 +34,10 @@ func runHTTPCall(cmd *cobra.Command, method, concretePath string) error {
 		return err
 	}
 
-	executor := newExecutorFromFlags(ls)
+	executor, err := newExecutorFromFlags(ls)
+	if err != nil {
+		return err
+	}
 
 	ctx := context.Background()
 	var respBody []byte

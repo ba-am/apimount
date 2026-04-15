@@ -43,10 +43,18 @@ func init() {
 	pf.String("profile", "", "use a named profile from config file")
 	pf.Bool("verbose", false, "debug logging")
 	pf.Duration("timeout", 0, "HTTP request timeout (default 30s)")
-	pf.String("auth-bearer", "", "Bearer token")
+	pf.String("auth-bearer", "", "Bearer token (accepts env:VAR / file:path / literal:val)")
 	pf.String("auth-basic", "", "Basic auth as user:password")
-	pf.String("auth-apikey", "", "API key value")
+	pf.String("auth-apikey", "", "API key value (accepts env:VAR / file:path / literal:val)")
 	pf.String("auth-apikey-param", "", "API key parameter name")
+
+	// Phase 3 — OAuth2 client credentials (machine-to-machine grant).
+	// Other OAuth2 flows (device code, auth code + PKCE) follow in a later drop.
+	pf.String("auth-oauth2-client-id", "", "OAuth2 client ID")
+	pf.String("auth-oauth2-client-secret", "", "OAuth2 client secret (accepts env:VAR / file:path / literal:val)")
+	pf.String("auth-oauth2-token-url", "", "OAuth2 token endpoint URL")
+	pf.StringSlice("auth-oauth2-scopes", nil, "OAuth2 scopes (comma-separated)")
+
 	_ = v.BindPFlags(pf)
 
 	// v1 legacy flags — valid only on the bare 'apimount' form.
@@ -90,7 +98,13 @@ func initConfig() {
 		return
 	}
 	profileKey := fmt.Sprintf("profiles.%s", profile)
-	for _, key := range []string{"spec", "base-url", "auth-bearer", "auth-basic", "auth-apikey", "cache-ttl", "group-by", "mount"} {
+	for _, key := range []string{
+		"spec", "base-url",
+		"auth-bearer", "auth-basic", "auth-apikey", "auth-apikey-param",
+		"auth-oauth2-client-id", "auth-oauth2-client-secret",
+		"auth-oauth2-token-url", "auth-oauth2-scopes",
+		"cache-ttl", "group-by", "mount",
+	} {
 		if val := v.Get(profileKey + "." + key); val != nil && !v.IsSet(key) {
 			v.Set(key, val)
 		}

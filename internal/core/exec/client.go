@@ -16,7 +16,8 @@ import (
 // APIClient is the HTTP client with auth injection.
 type APIClient struct {
 	httpClient   *http.Client
-	authInjector *auth.Injector
+	authInjector *auth.Injector // spec-aware static injector (Phase 1)
+	authChain    *auth.Chain    // extensible provider chain (Phase 3)
 }
 
 // HTTPRequest is the internal HTTP request descriptor.
@@ -38,8 +39,21 @@ type HTTPResponse struct {
 	Duration   time.Duration
 }
 
-// NewAPIClient creates a new API client.
+// NewAPIClient creates a new API client with the Phase 1 static injector only.
+// Use NewAPIClientWithChain for Phase 3 OAuth2 / multi-provider scenarios.
 func NewAPIClient(timeout time.Duration, authCfg *auth.Config, schemes []spec.AuthScheme) *APIClient {
+	return NewAPIClientWithChain(timeout, authCfg, schemes, nil)
+}
+
+// NewAPIClientWithChain creates an API client that runs both the spec-aware
+// static injector (for Phase 1 bearer/basic/apikey flags) and the Phase 3
+// Provider chain (for OAuth2 / extensible auth). Either may be nil.
+func NewAPIClientWithChain(
+	timeout time.Duration,
+	authCfg *auth.Config,
+	schemes []spec.AuthScheme,
+	chain *auth.Chain,
+) *APIClient {
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
@@ -49,6 +63,7 @@ func NewAPIClient(timeout time.Duration, authCfg *auth.Config, schemes []spec.Au
 	return &APIClient{
 		httpClient:   &http.Client{Timeout: timeout},
 		authInjector: auth.NewInjector(authCfg, schemes),
+		authChain:    chain,
 	}
 }
 
@@ -86,6 +101,13 @@ func (c *APIClient) Execute(ctx context.Context, req *HTTPRequest) (*HTTPRespons
 	}
 
 	c.authInjector.Apply(req.OpSecurity, req.Headers, req.QueryParams)
+
+	if c.authChain != nil {
+		tgt := &auth.ApplyTarget{Headers: req.Headers, QueryParams: req.QueryParams}
+		if err := c.authChain.Apply(ctx, tgt); err != nil {
+			return nil, fmt.Errorf("auth chain: %w", err)
+		}
+	}
 
 	for k, v := range req.Headers {
 		httpReq.Header.Set(k, v)
