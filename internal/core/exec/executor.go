@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/apimount/apimount/internal/core/cache"
@@ -36,17 +35,26 @@ func NewExecutor(client *APIClient, c *cache.Cache, baseURL string, prettyJSON b
 	return e
 }
 
+// HTTPError represents a non-2xx upstream response.
+type HTTPError struct {
+	Status int
+	Body   []byte
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("HTTP %d: %s", e.Status, string(e.Body))
+}
+
 // ExecuteGET executes an HTTP GET for the given operation and path params.
-// Returns (body, errno, error) — errno is 0 on success.
-func (e *Executor) ExecuteGET(ctx context.Context, op *spec.Operation, pathParams map[string]string, queryParams map[string]string) ([]byte, syscall.Errno, error) {
+func (e *Executor) ExecuteGET(ctx context.Context, op *spec.Operation, pathParams map[string]string, queryParams map[string]string) ([]byte, error) {
 	resolvedURL, err := e.resolveURL(op.Path, pathParams)
 	if err != nil {
-		return nil, syscall.EIO, err
+		return nil, err
 	}
 
 	cacheKey := cache.Key("GET", resolvedURL, queryParams)
 	if cached, ok := e.cache.Get(cacheKey); ok {
-		return cached, 0, nil
+		return cached, nil
 	}
 
 	resp, err := e.client.Execute(ctx, &HTTPRequest{
@@ -56,24 +64,23 @@ func (e *Executor) ExecuteGET(ctx context.Context, op *spec.Operation, pathParam
 		OpSecurity:  op.Security,
 	})
 	if err != nil {
-		return nil, httpErrToErrno(err), err
+		return nil, err
 	}
 
-	body, errno := e.processResponse(resp)
-	if errno != 0 {
-		return body, errno, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(resp.Body))
+	body, httpErr := e.processResponse(resp)
+	if httpErr != nil {
+		return body, httpErr
 	}
 
 	e.cache.Set(cacheKey, body)
-	return body, 0, nil
+	return body, nil
 }
 
 // ExecuteWrite executes a write operation (POST/PUT/PATCH/DELETE).
-// Returns (responseBody, errno, error).
-func (e *Executor) ExecuteWrite(ctx context.Context, op *spec.Operation, pathParams map[string]string, queryParams map[string]string, body []byte) ([]byte, syscall.Errno, error) {
+func (e *Executor) ExecuteWrite(ctx context.Context, op *spec.Operation, pathParams map[string]string, queryParams map[string]string, body []byte) ([]byte, error) {
 	resolvedURL, err := e.resolveURL(op.Path, pathParams)
 	if err != nil {
-		return nil, syscall.EIO, err
+		return nil, err
 	}
 
 	ct := ""
@@ -89,7 +96,7 @@ func (e *Executor) ExecuteWrite(ctx context.Context, op *spec.Operation, pathPar
 		OpSecurity:  op.Security,
 	})
 	if err != nil {
-		return nil, httpErrToErrno(err), err
+		return nil, err
 	}
 
 	e.cache.Invalidate(resolvedURL)
@@ -97,11 +104,11 @@ func (e *Executor) ExecuteWrite(ctx context.Context, op *spec.Operation, pathPar
 		e.cache.Invalidate(parent)
 	}
 
-	responseBody, errno := e.processResponse(resp)
-	if errno != 0 {
-		return responseBody, errno, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(resp.Body))
+	responseBody, httpErr := e.processResponse(resp)
+	if httpErr != nil {
+		return responseBody, httpErr
 	}
-	return responseBody, 0, nil
+	return responseBody, nil
 }
 
 // transport is the terminal handler: it calls the underlying APIClient.
@@ -117,15 +124,18 @@ func (e *Executor) transport(ctx context.Context, req *Request) (*Result, error)
 	if err != nil {
 		return nil, err
 	}
-	body, errno := e.processResponse(resp)
-	return &Result{
+	body, httpErr := e.processResponse(resp)
+	result := &Result{
 		Status:     resp.StatusCode,
 		Headers:    resp.Headers,
 		Body:       body,
-		Errno:      errno,
 		DurationMs: time.Since(start).Milliseconds(),
 		Attempts:   1,
-	}, nil
+	}
+	if httpErr != nil {
+		return result, httpErr
+	}
+	return result, nil
 }
 
 func (e *Executor) resolveURL(path string, pathParams map[string]string) (string, error) {
@@ -136,17 +146,17 @@ func (e *Executor) resolveURL(path string, pathParams map[string]string) (string
 	return e.baseURL + resolved, nil
 }
 
-func (e *Executor) processResponse(resp *HTTPResponse) ([]byte, syscall.Errno) {
-	if errno := statusToErrno(resp.StatusCode); errno != 0 {
-		return []byte(errorMessage(resp)), errno
-	}
-	body := resp.Body
-	if e.prettyJSON && isJSON(resp) {
-		if pretty, err := prettyPrint(body); err == nil {
-			body = pretty
+func (e *Executor) processResponse(resp *HTTPResponse) ([]byte, error) {
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		body := resp.Body
+		if e.prettyJSON && isJSON(resp) {
+			if pretty, err := prettyPrint(body); err == nil {
+				body = pretty
+			}
 		}
+		return body, nil
 	}
-	return body, 0
+	return resp.Body, &HTTPError{Status: resp.StatusCode, Body: resp.Body}
 }
 
 func isJSON(resp *HTTPResponse) bool {
@@ -159,62 +169,6 @@ func prettyPrint(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return json.MarshalIndent(v, "", "  ")
-}
-
-func errorMessage(resp *HTTPResponse) string {
-	switch resp.StatusCode {
-	case 401:
-		return "401 Unauthorized: check auth flags\n"
-	case 403:
-		return "403 Forbidden: insufficient permissions\n"
-	case 404:
-		return "404 Not Found\n"
-	case 429:
-		if ra := resp.Headers["Retry-After"]; ra != "" {
-			return fmt.Sprintf("429 Rate Limited: retry after %ss\n", ra)
-		}
-		return "429 Rate Limited\n"
-	default:
-		if len(resp.Body) > 0 {
-			return string(resp.Body) + "\n"
-		}
-		return fmt.Sprintf("HTTP %d\n", resp.StatusCode)
-	}
-}
-
-func statusToErrno(code int) syscall.Errno {
-	switch {
-	case code >= 200 && code < 300:
-		return 0
-	case code == 400:
-		return syscall.EIO
-	case code == 401:
-		return syscall.EACCES
-	case code == 403:
-		return syscall.EPERM
-	case code == 404:
-		return syscall.ENOENT
-	case code == 429:
-		return syscall.EAGAIN
-	case code >= 500:
-		return syscall.EIO
-	default:
-		return syscall.EIO
-	}
-}
-
-func httpErrToErrno(err error) syscall.Errno {
-	if err == nil {
-		return 0
-	}
-	s := err.Error()
-	if strings.Contains(s, "connection refused") {
-		return syscall.ECONNREFUSED
-	}
-	if strings.Contains(s, "timeout") || strings.Contains(s, "deadline exceeded") {
-		return syscall.ETIMEDOUT
-	}
-	return syscall.EIO
 }
 
 func parentPath(urlStr string) string {

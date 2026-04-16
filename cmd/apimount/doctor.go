@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 	"runtime"
 
 	"github.com/spf13/cobra"
@@ -28,11 +26,6 @@ var doctorCmd = &cobra.Command{
 		fmt.Println("apimount doctor")
 		fmt.Printf("  os / arch:         %s/%s\n", runtime.GOOS, runtime.GOARCH)
 		fmt.Printf("  go runtime:        %s\n", runtime.Version())
-
-		fmt.Println()
-		fmt.Println("FUSE frontend:")
-		fusePath := findFUSEBinary()
-		check("FUSE userspace", fusePath != "", fuseDetail(fusePath))
 
 		fmt.Println()
 		fmt.Println("Spec access:")
@@ -69,35 +62,4 @@ var doctorCmd = &cobra.Command{
 		}
 		return fmt.Errorf("%d check(s) failed", fails)
 	},
-}
-
-func findFUSEBinary() string {
-	candidates := []string{"fusermount3", "fusermount"}
-	if runtime.GOOS == "darwin" {
-		candidates = []string{"fusermount", "mount_macfuse", "mount_osxfuse"}
-	}
-	for _, name := range candidates {
-		if p, err := exec.LookPath(name); err == nil {
-			return p
-		}
-	}
-	// On macOS the userspace bin may not be on PATH — check known install paths.
-	if runtime.GOOS == "darwin" {
-		for _, p := range []string{"/usr/local/bin/macfuse", "/Library/Filesystems/macfuse.fs"} {
-			if _, err := os.Stat(p); err == nil {
-				return p
-			}
-		}
-	}
-	return ""
-}
-
-func fuseDetail(path string) string {
-	if path == "" {
-		if runtime.GOOS == "darwin" {
-			return "macFUSE not found; install from https://osxfuse.github.io or `brew install --cask macfuse`"
-		}
-		return "fusermount/fusermount3 not found; install fuse3 via your package manager"
-	}
-	return path
 }

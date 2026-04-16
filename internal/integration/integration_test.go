@@ -1,4 +1,4 @@
-// Package integration exercises the full stack (spec → plan → exec) without a live FUSE mount.
+// Package integration exercises the full stack (spec → plan → exec) end-to-end.
 package integration
 
 import (
@@ -40,9 +40,8 @@ func TestFullFlow_GETList(t *testing.T) {
 	_, ex := mockAPI(t, mux)
 
 	op := &spec.Operation{Method: "GET", Path: "/pets"}
-	body, errno, err := ex.ExecuteGET(context.Background(), op, nil, nil)
+	body, err := ex.ExecuteGET(context.Background(), op, nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, uintptr(0), uintptr(errno))
 	assert.Contains(t, string(body), "Fido")
 }
 
@@ -55,9 +54,8 @@ func TestFullFlow_GETByPathParam(t *testing.T) {
 	_, ex := mockAPI(t, mux)
 
 	op := &spec.Operation{Method: "GET", Path: "/pets/{petId}"}
-	body, errno, err := ex.ExecuteGET(context.Background(), op, map[string]string{"petId": "42"}, nil)
+	body, err := ex.ExecuteGET(context.Background(), op, map[string]string{"petId": "42"}, nil)
 	require.NoError(t, err)
-	assert.Equal(t, uintptr(0), uintptr(errno))
 	assert.Contains(t, string(body), "Rex")
 }
 
@@ -72,7 +70,7 @@ func TestFullFlow_GETWithQueryParam(t *testing.T) {
 	_, ex := mockAPI(t, mux)
 
 	op := &spec.Operation{Method: "GET", Path: "/pets"}
-	body, _, err := ex.ExecuteGET(context.Background(), op, nil, map[string]string{"status": "available"})
+	body, err := ex.ExecuteGET(context.Background(), op, nil, map[string]string{"status": "available"})
 	require.NoError(t, err)
 	assert.Contains(t, string(body), "available")
 }
@@ -92,9 +90,8 @@ func TestFullFlow_POST(t *testing.T) {
 
 	op := &spec.Operation{Method: "POST", Path: "/pets"}
 	payload := []byte(`{"name":"New","photoUrls":[]}`)
-	body, errno, err := ex.ExecuteWrite(context.Background(), op, nil, nil, payload)
+	body, err := ex.ExecuteWrite(context.Background(), op, nil, nil, payload)
 	require.NoError(t, err)
-	assert.Equal(t, uintptr(0), uintptr(errno))
 	assert.Contains(t, string(body), "99")
 	assert.Equal(t, payload, receivedBody)
 }
@@ -109,9 +106,8 @@ func TestFullFlow_PUT(t *testing.T) {
 	_, ex := mockAPI(t, mux)
 
 	op := &spec.Operation{Method: "PUT", Path: "/pets/{petId}"}
-	body, errno, err := ex.ExecuteWrite(context.Background(), op, map[string]string{"petId": "5"}, nil, []byte(`{"name":"Updated"}`))
+	body, err := ex.ExecuteWrite(context.Background(), op, map[string]string{"petId": "5"}, nil, []byte(`{"name":"Updated"}`))
 	require.NoError(t, err)
-	assert.Equal(t, uintptr(0), uintptr(errno))
 	assert.Contains(t, string(body), "Updated")
 }
 
@@ -126,7 +122,7 @@ func TestFullFlow_DELETE(t *testing.T) {
 	_, ex := mockAPI(t, mux)
 
 	op := &spec.Operation{Method: "DELETE", Path: "/pets/{petId}"}
-	_, _, err := ex.ExecuteWrite(context.Background(), op, map[string]string{"petId": "7"}, nil, nil)
+	_, err := ex.ExecuteWrite(context.Background(), op, map[string]string{"petId": "7"}, nil, nil)
 	require.NoError(t, err)
 	assert.True(t, deleted)
 }
@@ -139,9 +135,9 @@ func TestFullFlow_GET_401(t *testing.T) {
 	_, ex := mockAPI(t, mux)
 
 	op := &spec.Operation{Method: "GET", Path: "/secret"}
-	body, errno, _ := ex.ExecuteGET(context.Background(), op, nil, nil)
-	assert.NotEqual(t, uintptr(0), uintptr(errno))
-	assert.Contains(t, string(body), "401")
+	_, err := ex.ExecuteGET(context.Background(), op, nil, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "401")
 }
 
 func TestFullFlow_GET_404(t *testing.T) {
@@ -152,9 +148,9 @@ func TestFullFlow_GET_404(t *testing.T) {
 	_, ex := mockAPI(t, mux)
 
 	op := &spec.Operation{Method: "GET", Path: "/pets/{petId}"}
-	body, errno, _ := ex.ExecuteGET(context.Background(), op, map[string]string{"petId": "999"}, nil)
-	assert.NotEqual(t, uintptr(0), uintptr(errno))
-	assert.Contains(t, string(body), "404")
+	_, err := ex.ExecuteGET(context.Background(), op, map[string]string{"petId": "999"}, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "404")
 }
 
 func TestFullFlow_CacheHit(t *testing.T) {
@@ -212,9 +208,8 @@ func TestFullFlow_BearerAuth(t *testing.T) {
 	ex := exec.NewExecutor(client, c, srv.URL, false)
 
 	op := &spec.Operation{Method: "GET", Path: "/me"}
-	_, errno, err := ex.ExecuteGET(context.Background(), op, nil, nil)
+	_, err := ex.ExecuteGET(context.Background(), op, nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, uintptr(0), uintptr(errno))
 }
 
 func TestTreeBuilding_PetstorePathGrouping(t *testing.T) {

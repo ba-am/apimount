@@ -1,6 +1,6 @@
 # apimount
 
-**A universal OpenAPI adapter.** Point it at any OpenAPI 3.0 / 3.1 spec and call every operation through whichever surface you need — CLI, MCP server, WebDAV, NFS, or (optionally) FUSE. All surfaces share one execution core that handles auth, retries, rate-limits, pagination, schema validation, and audit.
+**A universal OpenAPI adapter.** Point it at any OpenAPI 3.0 / 3.1 spec and call every operation through whichever surface you need — CLI, MCP server, WebDAV, or NFS. All surfaces share one execution core that handles auth, retries, rate-limits, pagination, schema validation, and audit.
 
 ```bash
 # CLI — zero setup, works everywhere
@@ -8,7 +8,7 @@ apimount --spec ./petstore.yaml --base-url $URL get /pet/42
 apimount --spec ./petstore.yaml --base-url $URL post /pet --body '{"name":"Rex","photoUrls":[]}'
 ```
 
-> **Status.** Phase 1 (core refactor) and Phase 2 (CLI-first UX) are shipped. The MCP, WebDAV, NFS, and FUSE frontends listed below are on the roadmap — see [apimount_spec.md §14](apimount_spec.md#L734-L768) for the implementation order. The v1 FUSE code path still runs via `apimount serve fuse` for users who already depend on it.
+> **Status.** Phase 1 (core refactor) and Phase 2 (CLI-first UX) are shipped. Phase 3 (enterprise auth) is in progress. The MCP, WebDAV, and NFS frontends are on the roadmap — see [apimount_spec.md §14](apimount_spec.md#L734-L768) for the implementation order.
 
 ---
 
@@ -21,8 +21,7 @@ Every API consumer re-writes the same plumbing: auth, retries, pagination, rate-
 | **CLI** | Scripting, CI, humans in a terminal — zero setup, no mount | ✅ shipped |
 | **MCP server** | Expose an API as first-class tools to Claude Code / Desktop / Cursor / any MCP client | 🗺️ planned (Phase 5) |
 | **WebDAV server** | Browse an API from Finder / Explorer / any HTTP GUI, no kernel driver | 🗺️ planned (Phase 5) |
-| **NFS server** | Cross-platform mount (Linux / macOS / Windows) with no macFUSE, runs in containers | 🗺️ planned (Phase 5) |
-| **FUSE** | Lowest-latency local mount for advanced users who already have macFUSE / libfuse3 | ⚠️ v1 code, carried forward |
+| **NFS server** | Cross-platform mount (Linux / macOS / Windows) with no kernel driver, runs in containers | 🗺️ planned (Phase 5) |
 | **Library** | `pkg/apimount` importable Go module — reuse the parser, planner, executor | 🗺️ planned |
 
 See [apimount_spec.md §1](apimount_spec.md#L28-L57) for the full architecture and [§2](apimount_spec.md#L61-L99) for the enterprise feature list (OAuth2, SigV4, Vault / Keychain / 1Password secrets, OTel traces + metrics, RBAC, audit log, Sigstore-signed releases).
@@ -38,22 +37,6 @@ git clone https://github.com/ba-am/apimount
 cd apimount
 make build          # → bin/apimount
 make install        # installs to $GOPATH/bin
-```
-
-### FUSE prerequisites (only if you use `apimount serve fuse`)
-
-The CLI works on every OS with no extra install. FUSE is the only surface that needs a kernel driver, and it's optional.
-
-**macOS** — [macFUSE](https://osxfuse.github.io/):
-```bash
-brew install --cask macfuse
-# Then approve the kernel extension in System Settings → Privacy & Security
-```
-
-**Linux** — FUSE3:
-```bash
-sudo apt install fuse3          # Debian/Ubuntu
-sudo dnf install fuse3          # Fedora
 ```
 
 ---
@@ -110,7 +93,7 @@ apimount --profile github get /repos/torvalds/linux
 apimount doctor
 ```
 
-Reports OS / arch, Go runtime, spec reachability, and config file presence. (Also detects FUSE userspace if installed — informational only; the CLI does not need it.)
+Reports OS / arch, Go runtime, spec reachability, and config file presence.
 
 ---
 
@@ -158,31 +141,6 @@ Remaining Phase 3 work (OAuth2 device code, authorization code + PKCE, mTLS, AWS
 
 ---
 
-## FUSE (optional)
-
-Shipped for users who already depended on v1's FUSE mount. Everything the CLI does, FUSE also does — through the filesystem:
-
-```bash
-apimount serve fuse \
-  --spec ./petstore.yaml \
-  --base-url https://petstore3.swagger.io/api/v3 \
-  --mount /tmp/petstore
-
-cat /tmp/petstore/pet/42/.data
-echo '{"name":"Rex","photoUrls":[]}' > /tmp/petstore/pet/.post
-```
-
-v1 users can keep calling `apimount --spec S --mount M` verbatim; it prints a deprecation notice and dispatches to `serve fuse`. See [apimount_spec.md §16](apimount_spec.md#L807-L814).
-
-### Unmount
-
-```bash
-umount /tmp/petstore             # macOS
-fusermount -u /tmp/petstore      # Linux
-```
-
----
-
 ## Flags (global)
 
 ```
@@ -198,7 +156,7 @@ fusermount -u /tmp/petstore      # Linux
 --verbose               debug logging
 ```
 
-Per-command flags (body, query, header, mount, cache, grouping) are listed on each subcommand via `--help`.
+Per-command flags (body, query, header) are listed on each subcommand via `--help`.
 
 ---
 

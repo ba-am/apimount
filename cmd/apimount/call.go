@@ -41,15 +41,13 @@ func runHTTPCall(cmd *cobra.Command, method, concretePath string) error {
 
 	ctx := context.Background()
 	var respBody []byte
-	var errno any
 
 	switch strings.ToUpper(op.Method) {
 	case "GET":
-		respBody, errno, err = executor.ExecuteGET(ctx, op, pathParams, queryParams)
+		respBody, err = executor.ExecuteGET(ctx, op, pathParams, queryParams)
 	default:
-		respBody, errno, err = executor.ExecuteWrite(ctx, op, pathParams, queryParams, body)
+		respBody, err = executor.ExecuteWrite(ctx, op, pathParams, queryParams, body)
 	}
-	_ = errno
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		if len(respBody) > 0 {

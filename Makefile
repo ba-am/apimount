@@ -1,4 +1,4 @@
-.PHONY: build build-linux test test-verbose vet lint vulncheck clean install demo unmount
+.PHONY: build build-linux test test-verbose vet lint vulncheck clean install
 
 build:
 	go build -o bin/apimount ./cmd/apimount
@@ -27,17 +27,3 @@ clean:
 
 install:
 	go install ./cmd/apimount
-
-# Mount petstore locally for manual testing (requires macFUSE or libfuse3)
-demo:
-	mkdir -p mnt
-	./bin/apimount \
-		--spec testdata/petstore.yaml \
-		--base-url https://petstore3.swagger.io/api/v3 \
-		--mount mnt \
-		--verbose
-
-# Unmount (works on macOS and Linux)
-unmount:
-	fusermount -u mnt 2>/dev/null || umount mnt 2>/dev/null || diskutil unmount mnt 2>/dev/null || true
-	rmdir mnt 2>/dev/null || true

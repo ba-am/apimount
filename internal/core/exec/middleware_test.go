@@ -33,9 +33,8 @@ func TestExecutor_GET_success(t *testing.T) {
 	})
 	_, ex := newTestExecutor(t, mux)
 	op := &spec.Operation{Method: "GET", Path: "/ping"}
-	body, errno, err := ex.ExecuteGET(context.Background(), op, nil, nil)
+	body, err := ex.ExecuteGET(context.Background(), op, nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, uintptr(0), uintptr(errno))
 	assert.Contains(t, string(body), "ok")
 }
 
@@ -47,9 +46,8 @@ func TestExecutor_WriteReturnsBody(t *testing.T) {
 	})
 	_, ex := newTestExecutor(t, mux)
 	op := &spec.Operation{Method: "POST", Path: "/items"}
-	body, errno, err := ex.ExecuteWrite(context.Background(), op, nil, nil, []byte(`{"name":"x"}`))
+	body, err := ex.ExecuteWrite(context.Background(), op, nil, nil, []byte(`{"name":"x"}`))
 	require.NoError(t, err)
-	assert.Equal(t, uintptr(0), uintptr(errno))
 	assert.Contains(t, string(body), "id")
 }
 

@@ -22,20 +22,7 @@ linters:
             - pkg: "github.com/apimount/apimount/cmd"
               desc: "core must not import cmd"
 
-        # Rule 2: no cross-frontend imports.
-        no-cross-frontend:
-          list-mode: lax
-          files:
-            - "**/internal/frontend/fuse/**/*.go"
-          deny:
-            - pkg: "github.com/apimount/apimount/internal/frontend/nfs"
-              desc: "frontends must not import other frontends"
-            - pkg: "github.com/apimount/apimount/internal/frontend/webdav"
-              desc: "frontends must not import other frontends"
-            - pkg: "github.com/apimount/apimount/internal/frontend/mcp"
-              desc: "frontends must not import other frontends"
-
-        # Rule 3: no old v1 package paths allowed anywhere.
+        # Rule 2: no old v1 package paths allowed anywhere.
         no-v1-packages:
           list-mode: lax
           files:
@@ -47,10 +34,8 @@ linters:
               desc: "use internal/core/plan instead (v1 package removed)"
             - pkg: "github.com/apimount/apimount/internal/http"
               desc: "use internal/core/exec instead (v1 package removed)"
-            - pkg: "github.com/apimount/apimount/internal/fs"
-              desc: "use internal/frontend/fuse instead (v1 package removed)"
 
-        # Rule 4: no zap allowed (use log/slog).
+        # Rule 3: no zap allowed (use log/slog).
         no-zap:
           list-mode: lax
           files:

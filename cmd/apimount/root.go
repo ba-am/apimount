@@ -15,7 +15,7 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "apimount",
-	Short: "Universal OpenAPI adapter — CLI, MCP, WebDAV, NFS, FUSE",
+	Short: "Universal OpenAPI adapter — CLI, MCP, WebDAV, NFS",
 	Long: `apimount is a universal OpenAPI adapter. Point it at any OpenAPI 3.0/3.1
 spec and it exposes every operation through whichever surface you need:
 
@@ -23,14 +23,9 @@ spec and it exposes every operation through whichever surface you need:
   - MCP        (planned)   apimount serve mcp  — drive APIs from Claude / agents
   - WebDAV     (planned)   apimount serve webdav
   - NFS        (planned)   apimount serve nfs
-  - FUSE       (optional)  apimount serve fuse — local, needs macFUSE/libfuse3
 
 All surfaces share one execution core (auth, retry, rate-limit, pagination,
-schema validation, RBAC, audit). The core has no knowledge of any frontend.
-
-v1 compatibility: 'apimount --spec S --mount M' still works; it prints a
-deprecation notice and dispatches to 'apimount serve fuse'.`,
-	RunE: runLegacyRoot,
+schema validation, RBAC, audit). The core has no knowledge of any frontend.`,
 }
 
 func init() {
@@ -57,20 +52,10 @@ func init() {
 
 	_ = v.BindPFlags(pf)
 
-	// v1 legacy flags — valid only on the bare 'apimount' form.
-	// The 'apimount serve fuse' subcommand defines its own copies.
 	lf := rootCmd.Flags()
-	lf.String("mount", "", "v1 legacy: mount point (use 'apimount serve fuse --mount')")
-	lf.String("group-by", "tags", "v1 legacy: tree grouping")
-	lf.Duration("cache-ttl", 0, "v1 legacy: GET cache TTL")
-	lf.Int("cache-max-mb", 0, "v1 legacy: max cache MB")
 	lf.Bool("pretty", true, "pretty-print JSON responses")
-	lf.Bool("read-only", false, "v1 legacy: disallow writes")
-	lf.Bool("allow-other", false, "v1 legacy: FUSE allow_other")
-	lf.Bool("dry-run", false, "v1 legacy: print tree (use 'apimount tree')")
 
 	rootCmd.AddCommand(
-		serveCmd,
 		callCmd, getCmd, postCmd, putCmd, patchCmd, deleteCmd,
 		treeCmd, validateCmd,
 		profileCmd,
@@ -103,7 +88,6 @@ func initConfig() {
 		"auth-bearer", "auth-basic", "auth-apikey", "auth-apikey-param",
 		"auth-oauth2-client-id", "auth-oauth2-client-secret",
 		"auth-oauth2-token-url", "auth-oauth2-scopes",
-		"cache-ttl", "group-by", "mount",
 	} {
 		if val := v.Get(profileKey + "." + key); val != nil && !v.IsSet(key) {
 			v.Set(key, val)

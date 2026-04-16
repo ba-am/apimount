@@ -1,5 +1,5 @@
 // Package frontend defines the Frontend interface that all surface implementations must satisfy.
-// Each frontend (FUSE, NFS, WebDAV, MCP, CLI) receives the same plan.Node tree and exec.Executor
+// Each frontend (MCP, WebDAV, NFS, CLI) receives the same plan.Node tree and exec.Executor
 // and translates user interactions into core/exec.Request calls.
 //
 // Hard layering rule: nothing under internal/frontend/* may import another frontend package.
@@ -13,7 +13,7 @@ import (
 // Frontend is the interface implemented by every surface layer.
 // Serve blocks until ctx is cancelled.
 type Frontend interface {
-	// Name returns a short identifier, e.g. "fuse", "nfs", "webdav", "mcp", "cli".
+	// Name returns a short identifier, e.g. "mcp", "nfs", "webdav", "cli".
 	Name() string
 
 	// Serve runs the frontend. It must return when ctx is done.

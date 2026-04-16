@@ -4,7 +4,6 @@ package exec
 
 import (
 	"context"
-	"syscall"
 
 	"github.com/apimount/apimount/internal/core/spec"
 )
@@ -24,7 +23,6 @@ type Result struct {
 	Status     int
 	Headers    map[string]string
 	Body       []byte
-	Errno      syscall.Errno
 	FromCache  bool
 	DurationMs int64
 	Attempts   int

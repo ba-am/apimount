@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"strings"
 
@@ -176,11 +175,4 @@ func writeJSONResponse(w io.Writer, body []byte) {
 	}
 }
 
-func buildLogger(verbose bool) *slog.Logger {
-	level := slog.LevelInfo
-	if verbose {
-		level = slog.LevelDebug
-	}
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
-}
 
