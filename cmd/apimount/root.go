@@ -50,6 +50,18 @@ func init() {
 	pf.String("auth-oauth2-token-url", "", "OAuth2 token endpoint URL")
 	pf.StringSlice("auth-oauth2-scopes", nil, "OAuth2 scopes (comma-separated)")
 
+	// Phase 3 — mTLS (mutual TLS client authentication).
+	pf.String("auth-mtls-cert", "", "path to PEM client certificate for mTLS")
+	pf.String("auth-mtls-key", "", "path to PEM client private key for mTLS")
+	pf.String("auth-mtls-ca", "", "path to PEM CA bundle for server verification (optional)")
+
+	// Phase 3 — AWS SigV4.
+	pf.String("auth-sigv4-access-key", "", "AWS access key ID (accepts env:VAR / file:path)")
+	pf.String("auth-sigv4-secret-key", "", "AWS secret access key (accepts env:VAR / file:path)")
+	pf.String("auth-sigv4-session-token", "", "AWS session token for temporary credentials (optional)")
+	pf.String("auth-sigv4-region", "", "AWS region for SigV4 signing")
+	pf.String("auth-sigv4-service", "", "AWS service name for SigV4 (default: execute-api)")
+
 	_ = v.BindPFlags(pf)
 
 	lf := rootCmd.Flags()
@@ -59,6 +71,7 @@ func init() {
 		callCmd, getCmd, postCmd, putCmd, patchCmd, deleteCmd,
 		treeCmd, validateCmd,
 		profileCmd,
+		authCmd,
 		doctorCmd,
 		specCmd,
 		versionCmd, completionCmd,
@@ -87,7 +100,7 @@ func initConfig() {
 		"spec", "base-url",
 		"auth-bearer", "auth-basic", "auth-apikey", "auth-apikey-param",
 		"auth-oauth2-client-id", "auth-oauth2-client-secret",
-		"auth-oauth2-token-url", "auth-oauth2-scopes",
+		"auth-oauth2-token-url", "auth-oauth2-device-url", "auth-oauth2-scopes",
 	} {
 		if val := v.Get(profileKey + "." + key); val != nil && !v.IsSet(key) {
 			v.Set(key, val)

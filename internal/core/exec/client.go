@@ -3,6 +3,7 @@ package exec
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,6 +46,16 @@ func NewAPIClient(timeout time.Duration, authCfg *auth.Config, schemes []spec.Au
 	return NewAPIClientWithChain(timeout, authCfg, schemes, nil)
 }
 
+// ClientOption configures optional APIClient behaviour.
+type ClientOption func(*APIClient)
+
+// WithTLSConfig sets a custom TLS configuration (e.g. for mTLS client certs).
+func WithTLSConfig(cfg *tls.Config) ClientOption {
+	return func(c *APIClient) {
+		c.httpClient.Transport = &http.Transport{TLSClientConfig: cfg}
+	}
+}
+
 // NewAPIClientWithChain creates an API client that runs both the spec-aware
 // static injector (for Phase 1 bearer/basic/apikey flags) and the Phase 3
 // Provider chain (for OAuth2 / extensible auth). Either may be nil.
@@ -53,6 +64,7 @@ func NewAPIClientWithChain(
 	authCfg *auth.Config,
 	schemes []spec.AuthScheme,
 	chain *auth.Chain,
+	opts ...ClientOption,
 ) *APIClient {
 	if timeout == 0 {
 		timeout = 30 * time.Second
@@ -60,11 +72,15 @@ func NewAPIClientWithChain(
 	if authCfg == nil {
 		authCfg = &auth.Config{}
 	}
-	return &APIClient{
+	c := &APIClient{
 		httpClient:   &http.Client{Timeout: timeout},
 		authInjector: auth.NewInjector(authCfg, schemes),
 		authChain:    chain,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // Execute runs an HTTP request and returns the response.

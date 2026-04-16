@@ -40,6 +40,8 @@ func NewRegistry() *Registry {
 	r.Register(EnvProvider{})
 	r.Register(FileProvider{})
 	r.Register(LiteralProvider{})
+	r.Register(OpProvider{})
+	r.Register(KeychainProvider{})
 	return r
 }
 
@@ -112,5 +114,37 @@ func (FileProvider) Get(_ context.Context, path string) (string, error) {
 // "this really is the credential, not an indirection".
 type LiteralProvider struct{}
 
-func (LiteralProvider) Scheme() string                             { return "literal" }
-func (LiteralProvider) Get(_ context.Context, body string) (string, error) { return body, nil }
+func (LiteralProvider) Scheme() string                                      { return "literal" }
+func (LiteralProvider) Get(_ context.Context, body string) (string, error)  { return body, nil }
+
+// OpProvider reads secrets from 1Password CLI (`op read`). Ref format:
+// "op:op://vault/item/field". Requires `op` to be installed and authenticated
+// (e.g. via `eval $(op signin)`).
+type OpProvider struct{}
+
+func (OpProvider) Scheme() string { return "op" }
+func (OpProvider) Get(ctx context.Context, ref string) (string, error) {
+	if ref == "" {
+		return "", errors.New("op: empty reference")
+	}
+	return opRead(ctx, ref)
+}
+
+// KeychainProvider reads secrets from the macOS Keychain via `security find-generic-password`.
+// Ref format: "keychain:service/account" (e.g. "keychain:apimount/github-token").
+type KeychainProvider struct{}
+
+func (KeychainProvider) Scheme() string { return "keychain" }
+func (KeychainProvider) Get(ctx context.Context, ref string) (string, error) {
+	if ref == "" {
+		return "", errors.New("keychain: empty reference")
+	}
+	if runtime.GOOS != "darwin" {
+		return "", errors.New("keychain: only supported on macOS")
+	}
+	service, account, ok := strings.Cut(ref, "/")
+	if !ok {
+		return "", fmt.Errorf("keychain: expected format service/account, got %q", ref)
+	}
+	return keychainRead(ctx, service, account)
+}

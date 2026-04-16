@@ -81,7 +81,20 @@ func newExecutorFromFlags(ls *loadedSpec) (*exec.Executor, error) {
 		return nil, err
 	}
 
-	client := exec.NewAPIClientWithChain(timeout, authCfg, ls.ps.AuthSchemes, chain)
+	var clientOpts []exec.ClientOption
+	if certFile := v.GetString("auth-mtls-cert"); certFile != "" {
+		mtlsProvider, err := auth.NewMTLSProvider(auth.MTLSConfig{
+			CertFile: certFile,
+			KeyFile:  v.GetString("auth-mtls-key"),
+			CAFile:   v.GetString("auth-mtls-ca"),
+		})
+		if err != nil {
+			return nil, err
+		}
+		clientOpts = append(clientOpts, exec.WithTLSConfig(mtlsProvider.TLSConfig()))
+	}
+
+	client := exec.NewAPIClientWithChain(timeout, authCfg, ls.ps.AuthSchemes, chain, clientOpts...)
 	c := cache.New(0, 0) // cache disabled for one-shot CLI invocations
 	return exec.NewExecutor(client, c, ls.baseURL, true), nil
 }
@@ -90,14 +103,37 @@ func newExecutorFromFlags(ls *loadedSpec) (*exec.Executor, error) {
 // references (env:VAR, file:path, literal:x) are resolved before handing values
 // to providers, so an OAuth2 client-secret never touches argv or shell history.
 func buildAuthChain(ctx context.Context, registry *secret.Registry) (*auth.Chain, error) {
+	var providers []auth.Provider
+
+	// OAuth2 provider (client-credentials or cached device-code token).
+	oauth2Provider, err := buildOAuth2Provider(ctx, registry)
+	if err != nil {
+		return nil, err
+	}
+	if oauth2Provider != nil {
+		providers = append(providers, oauth2Provider)
+	}
+
+	// AWS SigV4 provider.
+	sigv4Provider, err := buildSigV4Provider(ctx, registry)
+	if err != nil {
+		return nil, err
+	}
+	if sigv4Provider != nil {
+		providers = append(providers, sigv4Provider)
+	}
+
+	return auth.NewChain(providers...), nil
+}
+
+func buildOAuth2Provider(ctx context.Context, registry *secret.Registry) (auth.Provider, error) {
 	clientID := v.GetString("auth-oauth2-client-id")
 	clientSecretRef := v.GetString("auth-oauth2-client-secret")
 	tokenURL := v.GetString("auth-oauth2-token-url")
 	scopes := v.GetStringSlice("auth-oauth2-scopes")
 
-	// No OAuth2 flags → empty chain. The static injector still runs.
 	if clientID == "" && clientSecretRef == "" && tokenURL == "" {
-		return auth.NewChain(), nil
+		return tryDeviceTokenProvider()
 	}
 
 	clientSecret, err := registry.Resolve(ctx, clientSecretRef)
@@ -105,16 +141,71 @@ func buildAuthChain(ctx context.Context, registry *secret.Registry) (*auth.Chain
 		return nil, fmt.Errorf("resolve --auth-oauth2-client-secret: %w", err)
 	}
 
-	provider, err := auth.NewOAuth2CCProvider(auth.OAuth2CCConfig{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		TokenURL:     tokenURL,
-		Scopes:       scopes,
-	})
-	if err != nil {
-		return nil, err
+	if clientSecret != "" {
+		return auth.NewOAuth2CCProvider(auth.OAuth2CCConfig{
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			TokenURL:     tokenURL,
+			Scopes:       scopes,
+		})
 	}
-	return auth.NewChain(provider), nil
+
+	return tryDeviceTokenProvider()
+}
+
+func buildSigV4Provider(ctx context.Context, registry *secret.Registry) (auth.Provider, error) {
+	accessKeyRef := v.GetString("auth-sigv4-access-key")
+	secretKeyRef := v.GetString("auth-sigv4-secret-key")
+	region := v.GetString("auth-sigv4-region")
+
+	if accessKeyRef == "" && secretKeyRef == "" && region == "" {
+		return nil, nil
+	}
+
+	accessKey, err := registry.Resolve(ctx, accessKeyRef)
+	if err != nil {
+		return nil, fmt.Errorf("resolve --auth-sigv4-access-key: %w", err)
+	}
+	secretKey, err := registry.Resolve(ctx, secretKeyRef)
+	if err != nil {
+		return nil, fmt.Errorf("resolve --auth-sigv4-secret-key: %w", err)
+	}
+	sessionToken := v.GetString("auth-sigv4-session-token")
+
+	return auth.NewSigV4Provider(auth.SigV4Config{
+		AccessKeyID:    accessKey,
+		SecretAccessKey: secretKey,
+		SessionToken:   sessionToken,
+		Region:         region,
+		Service:        v.GetString("auth-sigv4-service"),
+	})
+}
+
+// tryDeviceTokenProvider returns a device-code provider loaded from the token
+// cache if one exists for the current profile, or nil if not.
+func tryDeviceTokenProvider() (auth.Provider, error) {
+	cache, err := auth.NewTokenCache(tokenCacheDir())
+	if err != nil {
+		return nil, nil
+	}
+	key := cacheKeyFromFlags()
+	tok := cache.Get(key)
+	if tok == nil {
+		return nil, nil
+	}
+	tokenURL := v.GetString("auth-oauth2-token-url")
+	clientID := v.GetString("auth-oauth2-client-id")
+	if tokenURL == "" || clientID == "" {
+		return nil, nil
+	}
+	return auth.NewOAuth2DeviceProvider(auth.OAuth2DeviceConfig{
+		ClientID:      clientID,
+		TokenURL:      tokenURL,
+		DeviceAuthURL: tokenURL, // not used for Apply, only for Login
+		Scopes:        v.GetStringSlice("auth-oauth2-scopes"),
+		TokenCache:    cache,
+		CacheKey:      key,
+	})
 }
 
 // parseKVList parses a list of key=value strings into a map.
