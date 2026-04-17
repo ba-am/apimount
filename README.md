@@ -8,7 +8,7 @@ apimount --spec ./petstore.yaml --base-url $URL get /pet/42
 apimount --spec ./petstore.yaml --base-url $URL post /pet --body '{"name":"Rex","photoUrls":[]}'
 ```
 
-> **Status.** Phases 1–4 are shipped (core refactor, CLI UX, enterprise auth, reliability middlewares). Phase 5 (new frontends: MCP, WebDAV, NFS) is next — see [apimount_spec.md §14](apimount_spec.md#L734-L768) for the implementation order.
+> **Status.** Phases 1–5 are shipped (core refactor, CLI UX, enterprise auth, reliability middlewares, MCP/WebDAV/NFS frontends). Phase 6 (observability & audit) is next — see [apimount_spec.md §14](apimount_spec.md#L734-L768) for the implementation order.
 
 ---
 
@@ -19,9 +19,9 @@ Every API consumer re-writes the same plumbing: auth, retries, pagination, rate-
 | Surface | Use case | Status |
 |---|---|---|
 | **CLI** | Scripting, CI, humans in a terminal — zero setup, no mount | ✅ shipped |
-| **MCP server** | Expose an API as first-class tools to Claude Code / Desktop / Cursor / any MCP client | 🗺️ planned (Phase 5) |
-| **WebDAV server** | Browse an API from Finder / Explorer / any HTTP GUI, no kernel driver | 🗺️ planned (Phase 5) |
-| **NFS server** | Cross-platform mount (Linux / macOS / Windows) with no kernel driver, runs in containers | 🗺️ planned (Phase 5) |
+| **MCP server** | Expose an API as first-class tools to Claude Code / Desktop / Cursor / any MCP client | ✅ shipped |
+| **WebDAV server** | Browse an API from Finder / Explorer / any HTTP GUI, no kernel driver | ✅ shipped |
+| **NFS server** | Cross-platform mount (Linux / macOS / Windows) with no kernel driver, runs in containers | ✅ shipped |
 | **Library** | `pkg/apimount` importable Go module — reuse the parser, planner, executor | 🗺️ planned |
 
 See [apimount_spec.md §1](apimount_spec.md#L28-L57) for the full architecture and [§2](apimount_spec.md#L61-L99) for the enterprise feature list (OAuth2, SigV4, Vault / Keychain / 1Password secrets, OTel traces + metrics, RBAC, audit log, Sigstore-signed releases).
@@ -94,6 +94,43 @@ apimount doctor
 ```
 
 Reports OS / arch, Go runtime, spec reachability, and config file presence.
+
+---
+
+## Server frontends
+
+### MCP — expose every operation as a tool for Claude / agents
+
+```bash
+# stdio (default) — add to Claude Code / Desktop
+apimount serve mcp --spec ./petstore.yaml --base-url $URL
+
+# SSE — remote deployment
+apimount serve mcp --spec ./petstore.yaml --base-url $URL --transport sse --addr :8080
+```
+
+Each OpenAPI operation becomes one MCP tool. Tool name = `operationId`; parameters are derived from the spec's path/query/header params and request body schema. Auth, retry, rate-limiting, pagination, and validation are all inherited from the execution core.
+
+### WebDAV — browse from Finder / Explorer
+
+```bash
+apimount serve webdav --spec ./petstore.yaml --base-url $URL --addr :8080
+```
+
+Connect from macOS Finder (`Connect to Server → http://localhost:8080`), Windows Explorer (`Map Network Drive`), or any WebDAV client. The API tree is read-only.
+
+### NFS — cross-platform mount
+
+```bash
+apimount serve nfs --spec ./petstore.yaml --base-url $URL --addr :2049
+
+# Then mount from any OS:
+# Linux:   sudo mount -t nfs -o vers=3,nolock,tcp,port=2049 127.0.0.1:/ /mnt/api
+# macOS:   sudo mount -t nfs -o vers=3,resvport,nolock 127.0.0.1:/ /mnt/api
+# Windows: mount -o nolock 127.0.0.1:/ Z:
+```
+
+No kernel driver needed — serves NFSv3 over TCP. The API tree is read-only.
 
 ---
 

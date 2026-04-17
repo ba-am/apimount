@@ -79,6 +79,7 @@ func init() {
 		treeCmd, validateCmd,
 		profileCmd,
 		authCmd,
+		serveCmd,
 		doctorCmd,
 		specCmd,
 		versionCmd, completionCmd,
