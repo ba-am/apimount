@@ -8,7 +8,7 @@ apimount --spec ./petstore.yaml --base-url $URL get /pet/42
 apimount --spec ./petstore.yaml --base-url $URL post /pet --body '{"name":"Rex","photoUrls":[]}'
 ```
 
-> **Status.** Phase 1 (core refactor) and Phase 2 (CLI-first UX) are shipped. Phase 3 (enterprise auth) is in progress. The MCP, WebDAV, and NFS frontends are on the roadmap — see [apimount_spec.md §14](apimount_spec.md#L734-L768) for the implementation order.
+> **Status.** Phases 1–4 are shipped (core refactor, CLI UX, enterprise auth, reliability middlewares). Phase 5 (new frontends: MCP, WebDAV, NFS) is next — see [apimount_spec.md §14](apimount_spec.md#L734-L768) for the implementation order.
 
 ---
 
@@ -181,6 +181,53 @@ apimount --auth-bearer 'keychain:apimount/github' ...
 
 ---
 
+## Reliability
+
+### Retry
+
+Failed requests to idempotent endpoints (GET, HEAD, PUT, DELETE, OPTIONS) are retried automatically with exponential backoff and full jitter. Retryable status codes: 429, 502, 503, 504.
+
+```bash
+apimount --max-retries 5 --spec ./api.yaml get /items
+```
+
+### Rate limiting
+
+A per-host token bucket prevents overwhelming upstream APIs. Defaults: 10 req/s, burst 20. The limiter honours `Retry-After` and `X-RateLimit-*` response headers to dynamically adjust pacing.
+
+```bash
+apimount --rate-limit 5 --rate-burst 10 --spec ./api.yaml get /items
+```
+
+### Pagination
+
+Paginated GET responses are automatically fetched and merged into a single JSON array. Four strategies are auto-detected:
+
+| Strategy | Detection |
+|---|---|
+| **Link** | `Link: <url>; rel="next"` header |
+| **Cursor** | Response field named `cursor` / `next_cursor` / `after` / `continuation_token` |
+| **Offset/Limit** | Query params `offset` + `limit` |
+| **Page/Size** | Query params `page` + `per_page` / `size` |
+
+```bash
+apimount --max-pages 50 --spec ./api.yaml get /items
+```
+
+An `X-Apimount-Pages` header is added to the merged response indicating how many pages were fetched.
+
+### Request validation
+
+Validate request bodies against the operation's JSON Schema before sending:
+
+```bash
+apimount --validate --spec ./petstore.yaml post /pet --body '{"name":"Rex"}'
+```
+
+Validation errors report the exact path and reason for each violation, so you catch mistakes before they hit the server.
+
+---
+
 ## Flags (global)
 
 ```
@@ -193,6 +240,11 @@ apimount --auth-bearer 'keychain:apimount/github' ...
 --auth-basic string     Basic auth user:password
 --auth-apikey string    API key value
 --auth-apikey-param     API key header/param name
+--max-retries int       max retry attempts for idempotent requests (default 3)
+--rate-limit float      per-host requests per second, 0 = unlimited (default 10)
+--rate-burst int        per-host burst size (default 20)
+--max-pages int         max pages for paginated responses (default 100)
+--validate              validate request body against schema before sending
 --verbose               debug logging
 ```
 
