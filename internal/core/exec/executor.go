@@ -13,8 +13,15 @@ import (
 	"github.com/apimount/apimount/internal/core/spec"
 )
 
+// MiddlewareConfig bundles all Phase 4 middleware settings.
+type MiddlewareConfig struct {
+	Retry      RetryConfig
+	RateLimit  RateLimitConfig
+	Pagination PaginationConfig
+	Validation ValidationConfig
+}
+
 // Executor orchestrates the full pipeline: cache lookup → auth → HTTP → cache store.
-// Additional middlewares (retry, ratelimit, pagination) are added in later phases.
 type Executor struct {
 	client     *APIClient
 	cache      *cache.Cache
@@ -23,15 +30,28 @@ type Executor struct {
 	handler    Handler // assembled middleware chain
 }
 
-// NewExecutor creates a new Executor.
+// NewExecutor creates a new Executor with default (no-op) middleware settings.
 func NewExecutor(client *APIClient, c *cache.Cache, baseURL string, prettyJSON bool) *Executor {
+	return NewExecutorWithMiddleware(client, c, baseURL, prettyJSON, MiddlewareConfig{})
+}
+
+// NewExecutorWithMiddleware creates an Executor with the given middleware config.
+// Middleware order (outermost first): validation → pagination → retry → ratelimit → transport.
+func NewExecutorWithMiddleware(client *APIClient, c *cache.Cache, baseURL string, prettyJSON bool, mwCfg MiddlewareConfig) *Executor {
 	e := &Executor{
 		client:     client,
 		cache:      c,
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		prettyJSON: prettyJSON,
 	}
-	e.handler = chain(e.transport, nil) // Phase 4 will add retry/ratelimit here
+	var middlewares []Middleware
+	if mwCfg.Validation.Enabled {
+		middlewares = append(middlewares, ValidateMiddleware(mwCfg.Validation))
+	}
+	middlewares = append(middlewares, PaginationMiddleware(mwCfg.Pagination))
+	middlewares = append(middlewares, RetryMiddleware(mwCfg.Retry))
+	middlewares = append(middlewares, RateLimitMiddleware(mwCfg.RateLimit))
+	e.handler = chain(e.transport, middlewares)
 	return e
 }
 

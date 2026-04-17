@@ -62,6 +62,13 @@ func init() {
 	pf.String("auth-sigv4-region", "", "AWS region for SigV4 signing")
 	pf.String("auth-sigv4-service", "", "AWS service name for SigV4 (default: execute-api)")
 
+	// Phase 4 — Reliability middleware flags.
+	pf.Int("max-retries", 3, "maximum retry attempts for idempotent requests")
+	pf.Float64("rate-limit", 10, "per-host requests per second (0 = unlimited)")
+	pf.Int("rate-burst", 20, "per-host burst size for rate limiter")
+	pf.Int("max-pages", 100, "maximum pages to fetch for paginated responses")
+	pf.Bool("validate", false, "validate request bodies against the operation's schema before sending")
+
 	_ = v.BindPFlags(pf)
 
 	lf := rootCmd.Flags()

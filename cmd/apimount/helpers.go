@@ -96,7 +96,23 @@ func newExecutorFromFlags(ls *loadedSpec) (*exec.Executor, error) {
 
 	client := exec.NewAPIClientWithChain(timeout, authCfg, ls.ps.AuthSchemes, chain, clientOpts...)
 	c := cache.New(0, 0) // cache disabled for one-shot CLI invocations
-	return exec.NewExecutor(client, c, ls.baseURL, true), nil
+
+	mwCfg := exec.MiddlewareConfig{
+		Retry: exec.RetryConfig{
+			MaxAttempts: v.GetInt("max-retries"),
+		},
+		RateLimit: exec.RateLimitConfig{
+			RequestsPerSecond: v.GetFloat64("rate-limit"),
+			Burst:             v.GetInt("rate-burst"),
+		},
+		Pagination: exec.PaginationConfig{
+			MaxPages: v.GetInt("max-pages"),
+		},
+		Validation: exec.ValidationConfig{
+			Enabled: v.GetBool("validate"),
+		},
+	}
+	return exec.NewExecutorWithMiddleware(client, c, ls.baseURL, true, mwCfg), nil
 }
 
 // buildAuthChain assembles the Phase 3 auth.Chain from --auth-* flags. Secret
